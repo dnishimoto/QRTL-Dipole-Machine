@@ -1,3 +1,57 @@
+/*
+ Think of the equipment as a **large electromagnetic field generator plus a collector**, rather than as a Tesla coil.
+
+ The proposed physical equipment would have these major sections:
+
+ 1. **Power supply**
+
+    A grid-connected or other electrical power source provides the energy needed to establish and control the magnetic field. This input must be measured separately because it is an operating cost and part of the machine's energy balance.
+
+ 2. **Dipole field generator**
+
+    This is the central component. You would need a pair of large electromagnetic poles separated vertically—conceptually a **north/south dipole**. Large coils carrying controlled current would create the magnetic field. An iron or other magnetic core could concentrate the field near the machine, although extending a strong field many kilometers upward is a much harder engineering problem.
+
+ 3. **Large excitation coils**
+
+    Instead of a small Tesla-coil winding, the machine would use substantial coils designed to produce a controlled magnetic field. The important parameters would be **number of turns, coil radius, current, conductor size, magnetic-core properties, and electrical power**.
+
+ 4. **Field-control electronics**
+
+    Power electronics would control the current through the coils. If you want frequency to matter in your simulation, this is where it belongs. The controller could vary the excitation waveform and frequency rather than simply displaying frequency as a cosmetic parameter.
+
+ 5. **Vertical magnetic-flux structure**
+
+    This is the part your simulation should emphasize. The dipole produces magnetic field lines that extend outward and upward. The proposed mechanism assumes that these field lines provide a coupling pathway toward the ionosphere.
+
+    **Electrical power → coil current → magnetic field → extended flux structure → proposed ionospheric interaction**
+
+ 6. **Ionospheric coupling region**
+
+    There would not necessarily be a physical piece of equipment located in the ionosphere. In the model, this is the region where the machine's generated electromagnetic field interacts with the surrounding ionospheric electromagnetic environment.
+
+ 7. **Ground collector**
+
+    At the bottom, you would have a distributed conductive collection structure surrounding the dipole. Rather than imagining a huge solid 10-acre metal plate, your design could investigate a **radial network of conductors/electrodes** connected to a central terminal. That makes the geometry much more interesting because the collector can be distributed over the surface while the electromagnetic structure extends vertically.
+
+ 8. **Central terminal and power conditioning**
+
+    Currents collected by the distributed network would be brought to a central electrical terminal and then passed through rectification, regulation, transformation, and other power-conditioning equipment before reaching the load.
+
+ ### The key idea for your simulation
+
+ I would change the visual concept from:
+
+ **IONOSPHERE → giant collector → electricity**
+
+ to:
+
+ **POWER SUPPLY → ELECTROMAGNETIC DIPOLE → EXTENDED MAGNETIC FLUX → IONOSPHERIC COUPLING REGION → GROUND COLLECTION NETWORK → CENTRAL TERMINAL → POWER CONDITIONING → LOAD**
+
+ The **dipole should be the star of the simulation**. The collector is the receiving network at the bottom; it should not be portrayed as though simply increasing its acreage automatically captures more ionospheric energy.
+
+ And one major caution: creating a magnetic field does **not by itself establish that energy will flow from the ionosphere into the machine**. The simulation should explicitly model that as the proposed QRTL coupling mechanism and keep the field-generation input power visible, so the app can distinguish **field creation** from **actual net energy capture**.
+
+ */
 import SwiftUI
 import SceneKit
 import Combine
@@ -7,8 +61,8 @@ struct ContentView: View {
     // MARK: - Simulation State
 
     @State private var ionospherePowerMW: Double = 100.0
-    @State private var qrtlCoupling: Double = 0.10
-    @State private var collectorEfficiency: Double = 0.90
+    @State private var qrtlCoupling: Double = 0.05
+    @State private var collectorEfficiency: Double = 0.45
     @State private var conversionEfficiency: Double = 0.95
     @State private var machineConsumptionMW: Double = 2.0
 
