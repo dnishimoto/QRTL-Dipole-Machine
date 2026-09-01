@@ -1,5 +1,3 @@
-
-
 import Foundation
 import SwiftUI
 import Combine
@@ -281,6 +279,18 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return requestedFrequencyHz
+    }
+
+    /// Single source of truth for "is the field actually changing".
+    ///
+    /// Every dΦ/dt-dependent quantity below should gate on this
+    /// property instead of re-deriving `frequencyHz > 0.0` itself.
+    /// DC Hold and Pulsed both yield `false` here — see
+    /// `FieldDriveMode.summary` in DataStructures.swift, which
+    /// documents Pulsed as a copper-loss duty-cycle effect only,
+    /// not a Faraday-induction source.
+    var isACDriveActive: Bool {
+        frequencyHz > 0.0
     }
 
     var angularFrequency: Double {
@@ -820,7 +830,7 @@ final class QRTLDipoleModel: ObservableObject {
             return 0.0
         }
 
-        guard frequencyHz > 0.0 else {
+        guard isACDriveActive else {
             return fluxInPhaseWebers
         }
 
@@ -838,7 +848,7 @@ final class QRTLDipoleModel: ObservableObject {
 
         guard
             isRunning,
-            frequencyHz > 0.0
+            isACDriveActive
         else {
             return 0.0
         }
@@ -854,7 +864,7 @@ final class QRTLDipoleModel: ObservableObject {
 
         guard
             isRunning,
-            frequencyHz > 0.0
+            isACDriveActive
         else {
             return 0.0
         }
@@ -979,7 +989,7 @@ final class QRTLDipoleModel: ObservableObject {
     var skinDepthM: Double {
 
         guard
-            frequencyHz > 0.0,
+            isACDriveActive,
             collectorConductivitySPerM > 0.0
         else {
             return .infinity
@@ -1044,7 +1054,7 @@ final class QRTLDipoleModel: ObservableObject {
 
         guard
             includeACImpedance,
-            frequencyHz > 0.0
+            isACDriveActive
         else {
             return 0.0
         }
@@ -1058,7 +1068,7 @@ final class QRTLDipoleModel: ObservableObject {
 
         guard
             includeACImpedance,
-            frequencyHz > 0.0,
+            isACDriveActive,
             collectorCapacitanceF > 0.0
         else {
             return 0.0
@@ -1101,7 +1111,7 @@ final class QRTLDipoleModel: ObservableObject {
 
         guard
             isRunning,
-            frequencyHz > 0.0,
+            isACDriveActive,
             inducedVoltageRMS > 0.0,
             totalCircuitImpedanceMagnitudeOhms > 0.0
         else {
@@ -1408,7 +1418,7 @@ final class QRTLDipoleModel: ObservableObject {
                 : "QRTL modeled net output is below target"
         }
 
-        if frequencyHz <= 0.0 {
+        if !isACDriveActive {
             return
                 "Static field: flux is present, but dΦ/dt and Faraday output are zero."
         }

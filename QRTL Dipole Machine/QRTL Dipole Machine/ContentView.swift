@@ -301,7 +301,6 @@ struct ContentView: View {
 
     private var targetReached: Bool {
         model.isRunning
-            && model.frequencyHz > 0
             && model.conventionalNetOutputMW
                 >= model.targetNetOutputMW
     }
