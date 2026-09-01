@@ -1,648 +1,1730 @@
-/*
- Think of the equipment as a **large electromagnetic field generator plus a collector**, rather than as a Tesla coil.
-
- The proposed physical equipment would have these major sections:
-
- 1. **Power supply**
-
-    A grid-connected or other electrical power source provides the energy needed to establish and control the magnetic field. This input must be measured separately because it is an operating cost and part of the machine's energy balance.
-
- 2. **Dipole field generator**
-
-    This is the central component. You would need a pair of large electromagnetic poles separated vertically—conceptually a **north/south dipole**. Large coils carrying controlled current would create the magnetic field. An iron or other magnetic core could concentrate the field near the machine, although extending a strong field many kilometers upward is a much harder engineering problem.
-
- 3. **Large excitation coils**
-
-    Instead of a small Tesla-coil winding, the machine would use substantial coils designed to produce a controlled magnetic field. The important parameters would be **number of turns, coil radius, current, conductor size, magnetic-core properties, and electrical power**.
-
- 4. **Field-control electronics**
-
-    Power electronics would control the current through the coils. If you want frequency to matter in your simulation, this is where it belongs. The controller could vary the excitation waveform and frequency rather than simply displaying frequency as a cosmetic parameter.
-
- 5. **Vertical magnetic-flux structure**
-
-    This is the part your simulation should emphasize. The dipole produces magnetic field lines that extend outward and upward. The proposed mechanism assumes that these field lines provide a coupling pathway toward the ionosphere.
-
-    **Electrical power → coil current → magnetic field → extended flux structure → proposed ionospheric interaction**
-
- 6. **Ionospheric coupling region**
-
-    There would not necessarily be a physical piece of equipment located in the ionosphere. In the model, this is the region where the machine's generated electromagnetic field interacts with the surrounding ionospheric electromagnetic environment.
-
- 7. **Ground collector**
-
-    At the bottom, you would have a distributed conductive collection structure surrounding the dipole. Rather than imagining a huge solid 10-acre metal plate, your design could investigate a **radial network of conductors/electrodes** connected to a central terminal. That makes the geometry much more interesting because the collector can be distributed over the surface while the electromagnetic structure extends vertically.
-
- 8. **Central terminal and power conditioning**
-
-    Currents collected by the distributed network would be brought to a central electrical terminal and then passed through rectification, regulation, transformation, and other power-conditioning equipment before reaching the load.
-
- ### The key idea for your simulation
-
- I would change the visual concept from:
-
- **IONOSPHERE → giant collector → electricity**
-
- to:
-
- **POWER SUPPLY → ELECTROMAGNETIC DIPOLE → EXTENDED MAGNETIC FLUX → IONOSPHERIC COUPLING REGION → GROUND COLLECTION NETWORK → CENTRAL TERMINAL → POWER CONDITIONING → LOAD**
-
- The **dipole should be the star of the simulation**. The collector is the receiving network at the bottom; it should not be portrayed as though simply increasing its acreage automatically captures more ionospheric energy.
-
- And one major caution: creating a magnetic field does **not by itself establish that energy will flow from the ionosphere into the machine**. The simulation should explicitly model that as the proposed QRTL coupling mechanism and keep the field-generation input power visible, so the app can distinguish **field creation** from **actual net energy capture**.
-
- */
 import SwiftUI
 import SceneKit
-import Combine
 
 struct ContentView: View {
 
-    // MARK: - Simulation State
+    // MARK: - Source and QRTL hypothesis
 
-    @State private var ionospherePowerMW: Double = 100.0
-    @State private var qrtlCoupling: Double = 0.05
-    @State private var collectorEfficiency: Double = 0.45
-    @State private var conversionEfficiency: Double = 0.95
-    @State private var machineConsumptionMW: Double = 2.0
+    @State private var ionospherePowerMW = 100.0
 
-    @State private var collectorAreaAcres: Double = 10.0
-    @State private var collectorVoltageKV: Double = 100.0
+    /*
+     QRTL is kept explicitly as a hypothesis coefficient.
+     It does not establish that a physical energy pathway exists.
+    */
+    @State private var qrtlCoupling = 0.05
 
-    @State private var fieldStrength: Double = 1.0
-    @State private var fieldFrequencyKHz: Double = 10.0
+    /*
+     Assumed fraction of the stated ionospheric source ceiling
+     geometrically available at the defined coupling region.
+
+     This is intentionally separate from qrtlCoupling:
+     - couplingRegionAccess: source-access model assumption
+     - qrtlCoupling: proposed QRTL capture assumption
+    */
+    @State private var couplingRegionAccess = 0.50
+
+    // MARK: - Dipole generator
+
+    @State private var fieldStrengthTesla = 1.0
+    @State private var fieldFrequencyKHz = 10.0
+
+    @State private var coilTurns = 200.0
+    @State private var coilCurrentA = 500.0
+    @State private var coilResistanceOhms = 2.0
+    @State private var powerElectronicsEfficiency = 0.92
+    @State private var auxiliaryPowerMW = 0.20
+
+    // MARK: - Defined coupling region
+
+    @State private var couplingAltitudeKm = 100.0
+    @State private var couplingRadiusKm = 25.0
+
+    /*
+     The fieldStrengthTesla value is interpreted as the modeled
+     field at this generator reference radius.
+    */
+    @State private var generatorReferenceRadiusM = 3.0
+
+    /*
+     Represents modeled field geometry/alignment across the
+     coupling disk, from 0 to 1.
+    */
+    @State private var fluxGeometryFactor = 0.25
+
+    /*
+     Scale used only to normalize the Faraday-law induced-voltage
+     proxy into a bounded time-varying access factor.
+    */
+    @State private var inducedVoltageScaleKV = 1.0
+
+    // MARK: - Radial collector network
+
+    @State private var collectorAreaAcres = 10.0
+    @State private var collectorVoltageKV = 100.0
+
+    @State private var collectorConductivitySPerM = 0.05
+    @State private var collectorThicknessM = 0.10
+    @State private var radialSpokeCount = 32.0
+    @State private var radialSpokeWidthM = 2.0
+
+    @State private var contactEfficiency = 0.98
+    @State private var conversionEfficiency = 0.95
 
     @State private var isRunning = true
 
     private let targetPowerMW = 10.0
 
-    // MARK: - Calculations
-
-    private var coupledPowerMW: Double {
-        ionospherePowerMW * qrtlCoupling
-    }
-
-    private var collectorPowerMW: Double {
-        coupledPowerMW * collectorEfficiency
-    }
-
-    private var grossOutputMW: Double {
-        collectorPowerMW * conversionEfficiency
-    }
-
-    private var netOutputMW: Double {
-        grossOutputMW - machineConsumptionMW
-    }
-
-    private var targetPercent: Double {
-        guard targetPowerMW > 0 else { return 0 }
-        return max(0, netOutputMW / targetPowerMW * 100.0)
-    }
-
-    private var collectorCurrentA: Double {
-        let voltage = collectorVoltageKV * 1_000.0
-
-        guard voltage > 0 else {
-            return 0
-        }
-
-        return grossOutputMW * 1_000_000.0 / voltage
-    }
+    // MARK: - Geometry
 
     private var collectorAreaM2: Double {
-        collectorAreaAcres * 4046.8564224
+        collectorAreaAcres * 4_046.8564224
     }
 
-    private var currentDensity: Double {
+    private var collectorRadiusM: Double {
         guard collectorAreaM2 > 0 else {
             return 0
         }
 
-        return collectorCurrentA / collectorAreaM2
+        return sqrt(collectorAreaM2 / Double.pi)
     }
 
-    private var requiredExternalPowerMW: Double {
+    private var couplingAltitudeM: Double {
+        couplingAltitudeKm * 1_000.0
+    }
 
-        let efficiency =
-            qrtlCoupling *
-            collectorEfficiency *
-            conversionEfficiency
+    private var couplingRadiusM: Double {
+        couplingRadiusKm * 1_000.0
+    }
 
-        guard efficiency > 0 else {
+    private var couplingSurfaceAreaM2: Double {
+        Double.pi * couplingRadiusM * couplingRadiusM
+    }
+
+    // MARK: - Magnetic field and flux diagnostics
+
+    /*
+     Simplified axial dipole field proxy:
+
+     B(r) = B₀ × (r₀ / r)³
+
+     It is intentionally a first-order diagnostic, not a full
+     Earth-ionosphere or plasma electromagnetic field solver.
+    */
+    private var fieldAtCouplingTesla: Double {
+        let distanceM = max(couplingAltitudeM, 1.0)
+        let referenceM = max(generatorReferenceRadiusM, 0.01)
+
+        return fieldStrengthTesla *
+            pow(referenceM / distanceM, 3.0)
+    }
+
+    /*
+     Defined coupling-surface magnetic flux:
+
+     Φ = ∫ B · dA
+
+     First-order axial surface approximation:
+
+     Φ ≈ B_coupling × A_coupling × geometryFactor
+    */
+    private var magneticFluxWebers: Double {
+        fieldAtCouplingTesla *
+            couplingSurfaceAreaM2 *
+            fluxGeometryFactor
+    }
+
+    private var generatorReferenceFluxWebers: Double {
+        let referenceArea =
+            Double.pi *
+            generatorReferenceRadiusM *
+            generatorReferenceRadiusM
+
+        return fieldStrengthTesla * referenceArea
+    }
+
+    /*
+     This raw ratio is a field-decay diagnostic only.
+     It becomes extremely small for a compact generator evaluated
+     at a high-altitude coupling region.
+    */
+    private var rawFluxExtensionFactor: Double {
+        guard generatorReferenceFluxWebers > 0 else {
+            return 0
+        }
+
+        return max(
+            0,
+            magneticFluxWebers /
+            generatorReferenceFluxWebers
+        )
+    }
+
+    /*
+     A display/model score with logarithmic compression.
+
+     The raw ratio is preserved and displayed separately above.
+     This score allows the user to inspect a distant coupling
+     region without every modeled output formatting as 0.000000.
+
+     Approximate mapping:
+     1e-15 -> 0.00
+     1e-12 -> 0.20
+     1e-9  -> 0.40
+     1e-6  -> 0.60
+     1e-3  -> 0.80
+     1e0   -> 1.00
+    */
+    private var fluxReachScore: Double {
+        guard rawFluxExtensionFactor > 0 else {
+            return 0
+        }
+
+        let decades = log10(rawFluxExtensionFactor)
+
+        return min(
+            max(
+                (decades + 15.0) / 15.0,
+                0
+            ),
+            1
+        )
+    }
+
+    // MARK: - Time-varying field
+
+    private var frequencyHz: Double {
+        fieldFrequencyKHz * 1_000.0
+    }
+
+    /*
+     For sinusoidal flux:
+
+     |dΦ/dt|peak = 2πfΦpeak
+
+     f = 0 correctly produces a static field with dΦ/dt = 0.
+    */
+    private var fluxChangeRateWebersPerSecond: Double {
+        guard isRunning, frequencyHz > 0 else {
+            return 0
+        }
+
+        return 2.0 *
+            Double.pi *
+            frequencyHz *
+            magneticFluxWebers
+    }
+
+    /*
+     Faraday-law induced voltage proxy:
+
+     V_induced = N × |dΦ/dt|
+    */
+    private var inducedInteractionVoltageV: Double {
+        coilTurns * fluxChangeRateWebersPerSecond
+    }
+
+    /*
+     Bounded access factor derived from the induced-voltage proxy:
+
+     F_time = V_induced / (V_induced + V_scale)
+
+     This is zero for static magnetic fields.
+    */
+    private var timeVaryingAccessFactor: Double {
+        let scaleV = inducedVoltageScaleKV * 1_000.0
+
+        guard scaleV > 0 else {
+            return 0
+        }
+
+        return inducedInteractionVoltageV /
+            (inducedInteractionVoltageV + scaleV)
+    }
+
+    // MARK: - Generator energy input
+
+    /*
+     Two equivalent coils:
+
+     P_copper = 2 × I²R
+    */
+    private var coilCopperLossMW: Double {
+        guard isRunning else {
+            return 0
+        }
+
+        return 2.0 *
+            coilCurrentA *
+            coilCurrentA *
+            coilResistanceOhms /
+            1_000_000.0
+    }
+
+    /*
+     Field-generator input includes electronics loss:
+
+     P_generator = P_copper / η_electronics
+    */
+    private var fieldGeneratorInputMW: Double {
+        guard isRunning, powerElectronicsEfficiency > 0 else {
+            return 0
+        }
+
+        return coilCopperLossMW /
+            powerElectronicsEfficiency
+    }
+
+    // MARK: - Interaction and capture
+
+    /*
+     Revised source path:
+
+     P_accessible =
+       P_ionosphere
+       × couplingRegionAccess
+       × fluxReachScore
+
+     P_time =
+       P_accessible
+       × timeVaryingAccessFactor
+
+     P_QRTL =
+       P_time
+       × η_QRTL
+
+     The raw flux ratio remains a displayed physical diagnostic,
+     while the region-access parameter is explicitly labeled as
+     a model assumption.
+    */
+    private var fluxAccessibleIonosphericPowerMW: Double {
+        guard isRunning else {
+            return 0
+        }
+
+        return ionospherePowerMW *
+            couplingRegionAccess *
+            fluxReachScore
+    }
+
+    private var timeVaryingInteractionPowerMW: Double {
+        fluxAccessibleIonosphericPowerMW *
+            timeVaryingAccessFactor
+    }
+
+    private var qrtlCapturedPowerMW: Double {
+        timeVaryingInteractionPowerMW *
+            qrtlCoupling
+    }
+
+    // MARK: - Collector resistance model
+
+    /*
+     A_spoke = thickness × width
+     R_spoke = L / (σ × A_spoke)
+     R_network = R_spoke / N_spokes
+    */
+    private var collectorSpokeLengthM: Double {
+        collectorRadiusM
+    }
+
+    private var collectorSpokeCrossSectionM2: Double {
+        collectorThicknessM * radialSpokeWidthM
+    }
+
+    private var singleSpokeResistanceOhms: Double {
+        let denominator =
+            collectorConductivitySPerM *
+            collectorSpokeCrossSectionM2
+
+        guard denominator > 0 else {
             return .infinity
         }
 
-        return targetPowerMW / efficiency
+        return collectorSpokeLengthM / denominator
     }
 
-    private var pathEfficiency: Double {
-        qrtlCoupling *
-        collectorEfficiency *
-        conversionEfficiency
+    private var collectorNetworkResistanceOhms: Double {
+        guard radialSpokeCount > 0 else {
+            return .infinity
+        }
+
+        return singleSpokeResistanceOhms /
+            radialSpokeCount
     }
 
-    // MARK: - Body
+    private var collectorSourcePowerW: Double {
+        qrtlCapturedPowerMW * 1_000_000.0
+    }
+
+    private var collectorVoltageV: Double {
+        collectorVoltageKV * 1_000.0
+    }
+
+    /*
+     Source balance including network resistance:
+
+     P_source = V × I + I²R
+
+     Solved for I:
+
+     I = (-V + √(V² + 4RP)) / (2R)
+    */
+    private var collectorCurrentA: Double {
+        let powerW = collectorSourcePowerW
+        let voltageV = collectorVoltageV
+        let resistance = collectorNetworkResistanceOhms
+
+        guard powerW > 0, voltageV > 0 else {
+            return 0
+        }
+
+        guard resistance.isFinite, resistance > 0 else {
+            return powerW / voltageV
+        }
+
+        let discriminant =
+            voltageV * voltageV +
+            4.0 * resistance * powerW
+
+        return max(
+            0,
+            (
+                -voltageV +
+                sqrt(discriminant)
+            ) /
+            (2.0 * resistance)
+        )
+    }
+
+    private var collectorResistiveLossMW: Double {
+        guard collectorNetworkResistanceOhms.isFinite else {
+            return 0
+        }
+
+        return collectorCurrentA *
+            collectorCurrentA *
+            collectorNetworkResistanceOhms /
+            1_000_000.0
+    }
+
+    private var collectorDeliveredPowerMW: Double {
+        max(
+            0,
+            qrtlCapturedPowerMW -
+            collectorResistiveLossMW
+        )
+    }
+
+    private var contactLossMW: Double {
+        max(
+            0,
+            collectorDeliveredPowerMW *
+            (1.0 - contactEfficiency)
+        )
+    }
+
+    private var powerBeforeConversionMW: Double {
+        max(
+            0,
+            collectorDeliveredPowerMW -
+            contactLossMW
+        )
+    }
+
+    private var conversionLossMW: Double {
+        max(
+            0,
+            powerBeforeConversionMW *
+            (1.0 - conversionEfficiency)
+        )
+    }
+
+    private var grossOutputMW: Double {
+        powerBeforeConversionMW *
+            conversionEfficiency
+    }
+
+    /*
+     Complete accounting:
+
+     captured power
+       − collector I²R loss
+       − contact loss
+       − conversion loss
+       − field-generator input
+       − auxiliary input
+       = net output
+    */
+    private var netOutputMW: Double {
+        grossOutputMW -
+            fieldGeneratorInputMW -
+            auxiliaryPowerMW
+    }
+
+    private var currentDensityPerSpokeAperM2: Double {
+        guard collectorSpokeCrossSectionM2 > 0 else {
+            return 0
+        }
+
+        let currentPerSpoke =
+            collectorCurrentA /
+            max(radialSpokeCount, 1)
+
+        return currentPerSpoke /
+            collectorSpokeCrossSectionM2
+    }
+
+    private var grossPathEfficiency: Double {
+        guard ionospherePowerMW > 0 else {
+            return 0
+        }
+
+        return grossOutputMW / ionospherePowerMW
+    }
+
+    private var targetPercent: Double {
+        guard targetPowerMW > 0 else {
+            return 0
+        }
+
+        return max(
+            0,
+            netOutputMW /
+            targetPowerMW *
+            100.0
+        )
+    }
+
+    private var netOutputColor: Color {
+        if netOutputMW > 0 {
+            return .green
+        }
+
+        if netOutputMW < 0 {
+            return .red
+        }
+
+        return .secondary
+    }
+
+    private var fieldModeText: String {
+        if !isRunning {
+            return "Paused"
+        }
+
+        if frequencyHz == 0 {
+            return "Static field — dΦ/dt = 0"
+        }
+
+        return "Time-varying field"
+    }
+
+    // MARK: - Main view
 
     var body: some View {
-
         NavigationStack {
-
             ScrollView {
-
                 VStack(spacing: 18) {
-
-                    // ---------------------------------------------------------
-                    // TITLE
-                    // ---------------------------------------------------------
-
-                    VStack(spacing: 6) {
-
-                        Text("QRTL Dipole")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-
-                        Text("Electromagnetic Machine")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-
-                        Text(
-                            "Ionosphere → QRTL Dipole → Conductive Collector → Electrical Output"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    }
-
-                    // ---------------------------------------------------------
-                    // 3D MACHINE
-                    // ---------------------------------------------------------
-
-                    ZStack(alignment: .topLeading) {
-
-                        QRTLSceneView(
-                            running: isRunning,
-                            fieldStrength: fieldStrength
-                        )
-                        .frame(height: 520)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 20)
-                        )
-
-                        VStack(alignment: .leading, spacing: 5) {
-
-                            Text("3D FIELD MODEL")
-                                .font(.caption)
-                                .fontWeight(.bold)
-
-                            Text("IONOSPHERE")
-                            Text("↓")
-
-                            Text("QRTL DIPOLE")
-                            Text("↓")
-
-                            Text("CONDUCTIVE COLLECTOR")
-                            Text("↓")
-
-                            Text("CENTRAL TERMINAL")
-                            Text("↓")
-
-                            Text("10 MW LOAD")
-                        }
-                        .font(.caption2)
-                        .padding(12)
-                        .background(.ultraThinMaterial)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 12)
-                        )
-                        .padding(12)
-                    }
-
-                    // ---------------------------------------------------------
-                    // OUTPUT
-                    // ---------------------------------------------------------
-
-                    VStack(spacing: 14) {
-
-                        Text("SIMULATED ELECTRICAL OUTPUT")
-                            .font(.headline)
-
-                        HStack {
-
-                            OutputValue(
-                                title: "Gross",
-                                value: String(
-                                    format: "%.3f MW",
-                                    grossOutputMW
-                                )
-                            )
-
-                            OutputValue(
-                                title: "Net",
-                                value: String(
-                                    format: "%.3f MW",
-                                    netOutputMW
-                                )
-                            )
-
-                            OutputValue(
-                                title: "Target",
-                                value: String(
-                                    format: "%.1f%%",
-                                    targetPercent
-                                )
-                            )
-                        }
-
-                        ProgressView(
-                            value: min(
-                                max(netOutputMW / targetPowerMW, 0),
-                                1
-                            )
-                        )
-
-                        Text(
-                            "10 MW design target"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    .padding()
-                    .background(.thinMaterial)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18)
-                    )
-
-                    // ---------------------------------------------------------
-                    // ELECTRICAL OUTPUT
-                    // ---------------------------------------------------------
-
-                    VStack(alignment: .leading, spacing: 10) {
-
-                        Text("Collector Electrical Model")
-                            .font(.headline)
-
-                        MetricRow(
-                            name: "Collector voltage",
-                            value: String(
-                                format: "%.1f kV",
-                                collectorVoltageKV
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Collector current",
-                            value: String(
-                                format: "%.2f A",
-                                collectorCurrentA
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Collector area",
-                            value: String(
-                                format: "%.2f acres",
-                                collectorAreaAcres
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Collector area",
-                            value: String(
-                                format: "%.0f m²",
-                                collectorAreaM2
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Current density",
-                            value: String(
-                                format: "%.6f A/m²",
-                                currentDensity
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Machine consumption",
-                            value: String(
-                                format: "%.2f MW",
-                                machineConsumptionMW
-                            )
-                        )
-                    }
-                    .padding()
-                    .background(.thinMaterial)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18)
-                    )
-
-                    // ---------------------------------------------------------
-                    // EXTERNAL ENERGY
-                    // ---------------------------------------------------------
-
-                    VStack(alignment: .leading, spacing: 10) {
-
-                        Text("External Energy Model")
-                            .font(.headline)
-
-                        MetricRow(
-                            name: "Available ionospheric power",
-                            value: String(
-                                format: "%.2f MW",
-                                ionospherePowerMW
-                            )
-                        )
-
-                        MetricRow(
-                            name: "QRTL coupled power",
-                            value: String(
-                                format: "%.2f MW",
-                                coupledPowerMW
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Collector power",
-                            value: String(
-                                format: "%.2f MW",
-                                collectorPowerMW
-                            )
-                        )
-
-                        MetricRow(
-                            name: "Path efficiency",
-                            value: String(
-                                format: "%.3f%%",
-                                pathEfficiency * 100
-                            )
-                        )
-
-                        MetricRow(
-                            name: "External power required for 10 MW",
-                            value: String(
-                                format: "%.2f MW",
-                                requiredExternalPowerMW
-                            )
-                        )
-                    }
-                    .padding()
-                    .background(.thinMaterial)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18)
-                    )
-
-                    // ---------------------------------------------------------
-                    // CONTROLS
-                    // ---------------------------------------------------------
-
-                    VStack(alignment: .leading, spacing: 16) {
-
-                        Text("Machine Parameters")
-                            .font(.headline)
-
-                        ParameterSlider(
-                            title: "Ionospheric power",
-                            value: $ionospherePowerMW,
-                            range: 1...1000,
-                            step: 1,
-                            unit: " MW"
-                        )
-
-                        ParameterSlider(
-                            title: "QRTL coupling",
-                            value: $qrtlCoupling,
-                            range: 0.001...1.0,
-                            step: 0.001,
-                            unit: ""
-                        )
-
-                        ParameterSlider(
-                            title: "Collector efficiency",
-                            value: $collectorEfficiency,
-                            range: 0.1...1.0,
-                            step: 0.01,
-                            unit: ""
-                        )
-
-                        ParameterSlider(
-                            title: "Conversion efficiency",
-                            value: $conversionEfficiency,
-                            range: 0.1...1.0,
-                            step: 0.01,
-                            unit: ""
-                        )
-
-                        ParameterSlider(
-                            title: "Machine consumption",
-                            value: $machineConsumptionMW,
-                            range: 0...50,
-                            step: 0.1,
-                            unit: " MW"
-                        )
-
-                        ParameterSlider(
-                            title: "Collector area",
-                            value: $collectorAreaAcres,
-                            range: 0.01...10,
-                            step: 0.01,
-                            unit: " acres"
-                        )
-
-                        ParameterSlider(
-                            title: "Collector voltage",
-                            value: $collectorVoltageKV,
-                            range: 1...1000,
-                            step: 1,
-                            unit: " kV"
-                        )
-
-                        ParameterSlider(
-                            title: "Field strength",
-                            value: $fieldStrength,
-                            range: 0.1...10,
-                            step: 0.1,
-                            unit: ""
-                        )
-
-                        ParameterSlider(
-                            title: "Field frequency",
-                            value: $fieldFrequencyKHz,
-                            range: 1...100,
-                            step: 1,
-                            unit: " kHz"
-                        )
-
-                        Toggle(
-                            "Animate electromagnetic field",
-                            isOn: $isRunning
-                        )
-                    }
-                    .padding()
-                    .background(.thinMaterial)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18)
-                    )
-
-                    // ---------------------------------------------------------
-                    // EQUATION PIPELINE
-                    // ---------------------------------------------------------
-
-                    VStack(alignment: .leading, spacing: 14) {
-
-                        Text("Equation Pipeline")
-                            .font(.headline)
-
-                        EquationStep(
-                            number: "1",
-                            title: "Electromagnetic Energy Flux",
-                            equation: "S = E × H"
-                        )
-
-                        EquationStep(
-                            number: "2",
-                            title: "Available External Power",
-                            equation: "Pₑₓₜ = ∫ S · dA"
-                        )
-
-                        EquationStep(
-                            number: "3",
-                            title: "QRTL Coupling",
-                            equation: "P_QRTL = Pₑₓₜ × η_QRTL"
-                        )
-
-                        EquationStep(
-                            number: "4",
-                            title: "Collector Power",
-                            equation: "P_C = P_QRTL × η_C"
-                        )
-
-                        EquationStep(
-                            number: "5",
-                            title: "Electrical Power",
-                            equation: "P = V × I"
-                        )
-
-                        EquationStep(
-                            number: "6",
-                            title: "Current",
-                            equation: "I = P / V"
-                        )
-
-                        EquationStep(
-                            number: "7",
-                            title: "Resistive Loss",
-                            equation: "P_loss = I²R"
-                        )
-
-                        EquationStep(
-                            number: "8",
-                            title: "Net Output",
-                            equation: "P_net = P_out − P_machine"
-                        )
-
-                        Divider()
-
-                        Text(
-                            "Complete modeled pathway:"
-                        )
-                        .font(.caption)
-                        .fontWeight(.bold)
-
-                        Text(
-                            "Ionosphere → Electromagnetic Flux → QRTL Coupling → "
-                            + "Collector → Current → Power Conditioning → Load → Net Power"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    .padding()
-                    .background(.thinMaterial)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18)
-                    )
-
-                    // ---------------------------------------------------------
-                    // ENERGY ACCOUNTING
-                    // ---------------------------------------------------------
-
-                    VStack(alignment: .leading, spacing: 10) {
-
-                        Text("Energy Accounting")
-                            .font(.headline)
-
-                        EnergyBar(
-                            title: "External",
-                            value: ionospherePowerMW,
-                            maximum: max(ionospherePowerMW, 1)
-                        )
-
-                        EnergyBar(
-                            title: "QRTL Coupled",
-                            value: coupledPowerMW,
-                            maximum: max(ionospherePowerMW, 1)
-                        )
-
-                        EnergyBar(
-                            title: "Collector",
-                            value: collectorPowerMW,
-                            maximum: max(ionospherePowerMW, 1)
-                        )
-
-                        EnergyBar(
-                            title: "Gross Output",
-                            value: grossOutputMW,
-                            maximum: max(ionospherePowerMW, 1)
-                        )
-
-                        EnergyBar(
-                            title: "Net Output",
-                            value: max(netOutputMW, 0),
-                            maximum: max(ionospherePowerMW, 1)
-                        )
-                    }
-                    .padding()
-                    .background(.thinMaterial)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 18)
-                    )
-
-                    // ---------------------------------------------------------
-                    // DISCLAIMER
-                    // ---------------------------------------------------------
-
-                    Text(
-                        "The QRTL coupling coefficient is a user-defined "
-                        + "hypothesis parameter. The simulation calculates "
-                        + "predicted output from the supplied assumptions; "
-                        + "it does not establish that a physical ionosphere-to-ground "
-                        + "10 MW energy pathway exists."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
+                    titleSection
+                    simulationScene
+                    outputSection
+                    fluxSection
+                    generatorSection
+                    interactionSection
+                    collectorSection
+                    accountingSection
+                    controlsSection
+                    equationsSection
+                    energyFlowSection
+                    limitationSection
                 }
                 .padding()
             }
             .navigationBarTitleDisplayMode(.inline)
         }
     }
+
+    // MARK: - View sections
+
+    private var titleSection: some View {
+        VStack(spacing: 6) {
+            Text("QRTL Dipole")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Text("Flux-Coupled Electromagnetic Model")
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            Text(
+                "Electrical Input → Dipole Field → Coupling-Surface Flux → "
+                + "Time-Varying Interaction → QRTL Hypothesis → "
+                + "Radial Collector → Net Output"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        }
+    }
+
+    private var simulationScene: some View {
+        ZStack(alignment: .topLeading) {
+            QRTLSceneView(
+                running: isRunning,
+                fieldStrengthTesla: fieldStrengthTesla,
+                fieldFrequencyKHz: fieldFrequencyKHz,
+                couplingAltitudeKm: couplingAltitudeKm,
+                couplingRadiusKm: couplingRadiusKm,
+                radialSpokeCount: Int(radialSpokeCount)
+            )
+            .frame(height: 520)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 20
+                )
+            )
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("3D FIELD MODEL")
+                    .font(.caption)
+                    .fontWeight(.bold)
+
+                Text("POWER INPUT")
+                Text("↓")
+                Text("N / S DIPOLE COILS")
+                Text("↓")
+                Text("Φ THROUGH COUPLING SURFACE")
+                Text("↓")
+                Text("QRTL HYPOTHESIS")
+                Text("↓")
+                Text("RADIAL COLLECTOR NETWORK")
+                Text("↓")
+                Text("POWER CONDITIONING")
+                Text("↓")
+                Text("LOAD")
+            }
+            .font(.caption2)
+            .padding(12)
+            .background(.ultraThinMaterial)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 12
+                )
+            )
+            .padding(12)
+        }
+    }
+
+    private var outputSection: some View {
+        VStack(spacing: 14) {
+            Text("SIMULATED ELECTRICAL OUTPUT")
+                .font(.headline)
+
+            HStack {
+                OutputValue(
+                    title: "Captured",
+                    valueMW: qrtlCapturedPowerMW
+                )
+
+                OutputValue(
+                    title: "Gross",
+                    valueMW: grossOutputMW
+                )
+
+                OutputValue(
+                    title: "Net",
+                    valueMW: netOutputMW
+                )
+            }
+
+            ProgressView(
+                value: min(
+                    max(
+                        netOutputMW /
+                        targetPowerMW,
+                        0
+                    ),
+                    1
+                )
+            )
+            .tint(netOutputColor)
+
+            Text(
+                String(
+                    format: "%.2f%% of %.1f MW target",
+                    targetPercent,
+                    targetPowerMW
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(netOutputColor)
+        }
+        .panelStyle()
+    }
+
+    private var fluxSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Magnetic Flux at Coupling Region")
+                .font(.headline)
+
+            MetricRow(
+                name: "Field state",
+                value: fieldModeText
+            )
+
+            MetricRow(
+                name: "Coupling altitude",
+                value: String(
+                    format: "%.2f km",
+                    couplingAltitudeKm
+                )
+            )
+
+            MetricRow(
+                name: "Coupling-region radius",
+                value: String(
+                    format: "%.2f km",
+                    couplingRadiusKm
+                )
+            )
+
+            MetricRow(
+                name: "Coupling surface area",
+                value: String(
+                    format: "%.3e m²",
+                    couplingSurfaceAreaM2
+                )
+            )
+
+            MetricRow(
+                name: "Field at coupling surface",
+                value: String(
+                    format: "%.3e T",
+                    fieldAtCouplingTesla
+                )
+            )
+
+            MetricRow(
+                name: "Magnetic flux Φ = ∫B·dA",
+                value: String(
+                    format: "%.3e Wb",
+                    magneticFluxWebers
+                )
+            )
+
+            MetricRow(
+                name: "Raw Φ coupling / Φ reference",
+                value: String(
+                    format: "%.3e",
+                    rawFluxExtensionFactor
+                )
+            )
+
+            MetricRow(
+                name: "Flux reach score",
+                value: String(
+                    format: "%.3f",
+                    fluxReachScore
+                )
+            )
+
+            MetricRow(
+                name: "Peak dΦ/dt",
+                value: String(
+                    format: "%.3e Wb/s",
+                    fluxChangeRateWebersPerSecond
+                )
+            )
+
+            MetricRow(
+                name: "Induced-voltage proxy",
+                value: String(
+                    format: "%.3e V",
+                    inducedInteractionVoltageV
+                )
+            )
+
+            MetricRow(
+                name: "Time-varying access factor",
+                value: String(
+                    format: "%.3e",
+                    timeVaryingAccessFactor
+                )
+            )
+        }
+        .panelStyle()
+    }
+
+    private var generatorSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Field Generator Power")
+                .font(.headline)
+
+            MetricRow(
+                name: "Modeled coils",
+                value: "2"
+            )
+
+            MetricRow(
+                name: "Coil turns",
+                value: String(
+                    format: "%.0f",
+                    coilTurns
+                )
+            )
+
+            MetricRow(
+                name: "Coil current",
+                value: String(
+                    format: "%.2f A",
+                    coilCurrentA
+                )
+            )
+
+            MetricRow(
+                name: "Resistance per coil",
+                value: String(
+                    format: "%.4f Ω",
+                    coilResistanceOhms
+                )
+            )
+
+            MetricRow(
+                name: "Copper loss: 2I²R",
+                value: PowerFormatter.string(
+                    megawatts: coilCopperLossMW
+                )
+            )
+
+            MetricRow(
+                name: "Electronics efficiency",
+                value: String(
+                    format: "%.2f%%",
+                    powerElectronicsEfficiency * 100.0
+                )
+            )
+
+            MetricRow(
+                name: "Field-generator input",
+                value: PowerFormatter.string(
+                    megawatts: fieldGeneratorInputMW
+                )
+            )
+
+            MetricRow(
+                name: "Auxiliary input",
+                value: PowerFormatter.string(
+                    megawatts: auxiliaryPowerMW
+                )
+            )
+        }
+        .panelStyle()
+    }
+
+    private var interactionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Interaction and QRTL Model")
+                .font(.headline)
+
+            MetricRow(
+                name: "Ionospheric power ceiling",
+                value: PowerFormatter.string(
+                    megawatts: ionospherePowerMW
+                )
+            )
+
+            MetricRow(
+                name: "Coupling-region access assumption",
+                value: String(
+                    format: "%.2f%%",
+                    couplingRegionAccess * 100.0
+                )
+            )
+
+            MetricRow(
+                name: "Flux-accessible power",
+                value: PowerFormatter.string(
+                    megawatts: fluxAccessibleIonosphericPowerMW
+                )
+            )
+
+            MetricRow(
+                name: "Time-varying interaction",
+                value: PowerFormatter.string(
+                    megawatts: timeVaryingInteractionPowerMW
+                )
+            )
+
+            MetricRow(
+                name: "QRTL hypothesis coefficient",
+                value: String(
+                    format: "%.6f",
+                    qrtlCoupling
+                )
+            )
+
+            MetricRow(
+                name: "Captured before collector loss",
+                value: PowerFormatter.string(
+                    megawatts: qrtlCapturedPowerMW
+                )
+            )
+        }
+        .panelStyle()
+    }
+
+    private var collectorSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Radial Collector Network")
+                .font(.headline)
+
+            MetricRow(
+                name: "Collection footprint",
+                value: String(
+                    format: "%.3f acres",
+                    collectorAreaAcres
+                )
+            )
+
+            MetricRow(
+                name: "Collector area",
+                value: String(
+                    format: "%.2f m²",
+                    collectorAreaM2
+                )
+            )
+
+            MetricRow(
+                name: "Equivalent radius",
+                value: String(
+                    format: "%.2f m",
+                    collectorRadiusM
+                )
+            )
+
+            MetricRow(
+                name: "Parallel radial spokes",
+                value: String(
+                    format: "%.0f",
+                    radialSpokeCount
+                )
+            )
+
+            MetricRow(
+                name: "Spoke length",
+                value: String(
+                    format: "%.2f m",
+                    collectorSpokeLengthM
+                )
+            )
+
+            MetricRow(
+                name: "Conductivity",
+                value: String(
+                    format: "%.5f S/m",
+                    collectorConductivitySPerM
+                )
+            )
+
+            MetricRow(
+                name: "Spoke cross-section",
+                value: String(
+                    format: "%.6f m²",
+                    collectorSpokeCrossSectionM2
+                )
+            )
+
+            MetricRow(
+                name: "Single-spoke resistance",
+                value: String(
+                    format: "%.6f Ω",
+                    singleSpokeResistanceOhms
+                )
+            )
+
+            MetricRow(
+                name: "Network resistance",
+                value: String(
+                    format: "%.6f Ω",
+                    collectorNetworkResistanceOhms
+                )
+            )
+
+            MetricRow(
+                name: "Collector current",
+                value: String(
+                    format: "%.6f A",
+                    collectorCurrentA
+                )
+            )
+
+            MetricRow(
+                name: "Current density per spoke",
+                value: String(
+                    format: "%.6f A/m²",
+                    currentDensityPerSpokeAperM2
+                )
+            )
+
+            MetricRow(
+                name: "Collector I²R loss",
+                value: PowerFormatter.string(
+                    megawatts: collectorResistiveLossMW
+                )
+            )
+        }
+        .panelStyle()
+    }
+
+    private var accountingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Complete Energy Accounting")
+                .font(.headline)
+
+            MetricRow(
+                name: "Captured power",
+                value: PowerFormatter.string(
+                    megawatts: qrtlCapturedPowerMW
+                )
+            )
+
+            MetricRow(
+                name: "− Collector I²R loss",
+                value: PowerFormatter.string(
+                    megawatts: collectorResistiveLossMW
+                )
+            )
+
+            MetricRow(
+                name: "− Contact/interface loss",
+                value: PowerFormatter.string(
+                    megawatts: contactLossMW
+                )
+            )
+
+            MetricRow(
+                name: "− Conversion loss",
+                value: PowerFormatter.string(
+                    megawatts: conversionLossMW
+                )
+            )
+
+            MetricRow(
+                name: "− Field-generator input",
+                value: PowerFormatter.string(
+                    megawatts: fieldGeneratorInputMW
+                )
+            )
+
+            MetricRow(
+                name: "− Auxiliary input",
+                value: PowerFormatter.string(
+                    megawatts: auxiliaryPowerMW
+                )
+            )
+
+            Divider()
+
+            MetricRow(
+                name: "Net output",
+                value: PowerFormatter.string(
+                    megawatts: netOutputMW
+                )
+            )
+
+            MetricRow(
+                name: "Gross source-to-load efficiency",
+                value: String(
+                    format: "%.6f%%",
+                    grossPathEfficiency * 100.0
+                )
+            )
+        }
+        .panelStyle()
+    }
+
+    private var controlsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Model Parameters")
+                .font(.headline)
+
+            Text("Dipole and coupling surface")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            ParameterSlider(
+                title: "Generator field strength",
+                value: $fieldStrengthTesla,
+                range: 0.001...10.0,
+                step: 0.001,
+                unit: " T"
+            )
+
+            ParameterSlider(
+                title: "Field frequency",
+                value: $fieldFrequencyKHz,
+                range: 0.0...100.0,
+                step: 0.1,
+                unit: " kHz"
+            )
+
+            ParameterSlider(
+                title: "Coupling altitude",
+                value: $couplingAltitudeKm,
+                range: 1.0...500.0,
+                step: 1.0,
+                unit: " km"
+            )
+
+            ParameterSlider(
+                title: "Coupling-region radius",
+                value: $couplingRadiusKm,
+                range: 0.1...250.0,
+                step: 0.1,
+                unit: " km"
+            )
+
+            ParameterSlider(
+                title: "Generator reference radius",
+                value: $generatorReferenceRadiusM,
+                range: 0.1...50.0,
+                step: 0.1,
+                unit: " m"
+            )
+
+            ParameterSlider(
+                title: "Flux geometry factor",
+                value: $fluxGeometryFactor,
+                range: 0.001...1.0,
+                step: 0.001,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Coupling-region access assumption",
+                value: $couplingRegionAccess,
+                range: 0.0...1.0,
+                step: 0.01,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Induced-voltage scale",
+                value: $inducedVoltageScaleKV,
+                range: 0.1...1_000.0,
+                step: 0.1,
+                unit: " kV"
+            )
+
+            Text("Field generator")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            ParameterSlider(
+                title: "Coil turns",
+                value: $coilTurns,
+                range: 1.0...10_000.0,
+                step: 1.0,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Coil current",
+                value: $coilCurrentA,
+                range: 0.0...10_000.0,
+                step: 1.0,
+                unit: " A"
+            )
+
+            ParameterSlider(
+                title: "Resistance per coil",
+                value: $coilResistanceOhms,
+                range: 0.001...100.0,
+                step: 0.001,
+                unit: " Ω"
+            )
+
+            ParameterSlider(
+                title: "Power-electronics efficiency",
+                value: $powerElectronicsEfficiency,
+                range: 0.1...1.0,
+                step: 0.01,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Auxiliary power",
+                value: $auxiliaryPowerMW,
+                range: 0.0...50.0,
+                step: 0.01,
+                unit: " MW"
+            )
+
+            Text("Ionosphere and QRTL hypothesis")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            ParameterSlider(
+                title: "Ionospheric power ceiling",
+                value: $ionospherePowerMW,
+                range: 1.0...1_000.0,
+                step: 1.0,
+                unit: " MW"
+            )
+
+            ParameterSlider(
+                title: "QRTL hypothesis coupling",
+                value: $qrtlCoupling,
+                range: 0.0...1.0,
+                step: 0.001,
+                unit: ""
+            )
+
+            Text("Radial collector network")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            ParameterSlider(
+                title: "Collector footprint",
+                value: $collectorAreaAcres,
+                range: 0.01...100.0,
+                step: 0.01,
+                unit: " acres"
+            )
+
+            ParameterSlider(
+                title: "Collector voltage",
+                value: $collectorVoltageKV,
+                range: 1.0...1_000.0,
+                step: 1.0,
+                unit: " kV"
+            )
+
+            ParameterSlider(
+                title: "Collector conductivity",
+                value: $collectorConductivitySPerM,
+                range: 0.001...10.0,
+                step: 0.001,
+                unit: " S/m"
+            )
+
+            ParameterSlider(
+                title: "Collector thickness",
+                value: $collectorThicknessM,
+                range: 0.001...2.0,
+                step: 0.001,
+                unit: " m"
+            )
+
+            ParameterSlider(
+                title: "Radial spoke count",
+                value: $radialSpokeCount,
+                range: 1.0...256.0,
+                step: 1.0,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Radial spoke width",
+                value: $radialSpokeWidthM,
+                range: 0.01...20.0,
+                step: 0.01,
+                unit: " m"
+            )
+
+            ParameterSlider(
+                title: "Contact/interface efficiency",
+                value: $contactEfficiency,
+                range: 0.1...1.0,
+                step: 0.01,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Conversion efficiency",
+                value: $conversionEfficiency,
+                range: 0.1...1.0,
+                step: 0.01,
+                unit: ""
+            )
+
+            Toggle(
+                "Energize and animate field",
+                isOn: $isRunning
+            )
+        }
+        .panelStyle()
+    }
+
+    private var equationsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Equation Pipeline")
+                .font(.headline)
+
+            EquationStep(
+                number: "1",
+                title: "Axial dipole field proxy",
+                equation: "B(r) = B₀(r₀ / r)³"
+            )
+
+            EquationStep(
+                number: "2",
+                title: "Flux through coupling surface",
+                equation: "Φ = ∫ B · dA ≈ B A g"
+            )
+
+            EquationStep(
+                number: "3",
+                title: "Time-varying flux",
+                equation: "|dΦ/dt| = 2πfΦ"
+            )
+
+            EquationStep(
+                number: "4",
+                title: "Induced-voltage proxy",
+                equation: "V = N|dΦ/dt|"
+            )
+
+            EquationStep(
+                number: "5",
+                title: "Coupling-region access",
+                equation: "P_access = P_ionosphere a_region F_reach"
+            )
+
+            EquationStep(
+                number: "6",
+                title: "QRTL hypothesis capture",
+                equation: "P_capture = P_access F_time η_QRTL"
+            )
+
+            EquationStep(
+                number: "7",
+                title: "Collector resistance",
+                equation: "R = L / (σ A N)"
+            )
+
+            EquationStep(
+                number: "8",
+                title: "Collector loss",
+                equation: "P_loss = I²R"
+            )
+
+            EquationStep(
+                number: "9",
+                title: "Generator copper loss",
+                equation: "P_coils = 2I²R"
+            )
+
+            EquationStep(
+                number: "10",
+                title: "Net output",
+                equation: "P_net = P_gross − P_generator − P_aux"
+            )
+        }
+        .panelStyle()
+    }
+
+    private var energyFlowSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Energy Flow")
+                .font(.headline)
+
+            EnergyBar(
+                title: "Ionospheric ceiling",
+                valueMW: ionospherePowerMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "Flux-accessible",
+                valueMW: fluxAccessibleIonosphericPowerMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "Time-varying interaction",
+                valueMW: timeVaryingInteractionPowerMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "QRTL captured",
+                valueMW: qrtlCapturedPowerMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "Collector delivered",
+                valueMW: collectorDeliveredPowerMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "Gross output",
+                valueMW: grossOutputMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "Field-generator input",
+                valueMW: fieldGeneratorInputMW,
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+
+            EnergyBar(
+                title: "Net output",
+                valueMW: max(
+                    netOutputMW,
+                    0
+                ),
+                maximumMW: max(
+                    ionospherePowerMW,
+                    1
+                )
+            )
+        }
+        .panelStyle()
+    }
+
+    private var limitationSection: some View {
+        Text(
+            "Model limitation: the dipole-field expression, flux geometry, "
+            + "coupling-region access, induced-voltage scale, available ionospheric "
+            + "power, and QRTL coefficient are model assumptions. This app explicitly "
+            + "accounts for flux extension, time-varying excitation, generator input, "
+            + "and collector I²R loss; it does not establish an ionosphere-to-ground "
+            + "net-power pathway."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
 }
 
+// MARK: - Shared View Style
 
-// MARK: - 3D Scene
+private extension View {
+
+    func panelStyle() -> some View {
+        padding()
+            .background(.thinMaterial)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: 18
+                )
+            )
+    }
+}
+
+// MARK: - Power Formatter
+
+enum PowerFormatter {
+
+    static func string(
+        megawatts valueMW: Double
+    ) -> String {
+        let sign = valueMW < 0 ? "−" : ""
+        let watts = abs(valueMW) * 1_000_000.0
+
+        switch watts {
+        case 1_000_000.0...:
+            return String(
+                format: "%@%.4f MW",
+                sign,
+                watts / 1_000_000.0
+            )
+
+        case 1_000.0...:
+            return String(
+                format: "%@%.3f kW",
+                sign,
+                watts / 1_000.0
+            )
+
+        case 1.0...:
+            return String(
+                format: "%@%.3f W",
+                sign,
+                watts
+            )
+
+        case 0.001...:
+            return String(
+                format: "%@%.3f mW",
+                sign,
+                watts * 1_000.0
+            )
+
+        case 0.000001...:
+            return String(
+                format: "%@%.3f µW",
+                sign,
+                watts * 1_000_000.0
+            )
+
+        default:
+            return String(
+                format: "%@%.3e W",
+                sign,
+                watts
+            )
+        }
+    }
+}
+
+// MARK: - Output Value
+
+struct OutputValue: View {
+
+    let title: String
+    let valueMW: Double
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(
+                PowerFormatter.string(
+                    megawatts: valueMW
+                )
+            )
+            .font(.headline)
+            .fontWeight(.bold)
+            .monospacedDigit()
+            .minimumScaleFactor(0.65)
+            .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Metric Row
+
+struct MetricRow: View {
+
+    let name: String
+    let value: String
+
+    var body: some View {
+        HStack(
+            alignment: .firstTextBaseline,
+            spacing: 12
+        ) {
+            Text(name)
+
+            Spacer(minLength: 8)
+
+            Text(value)
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+        }
+        .font(.subheadline)
+    }
+}
+
+// MARK: - Parameter Slider
+
+struct ParameterSlider: View {
+
+    let title: String
+
+    @Binding var value: Double
+
+    let range: ClosedRange<Double>
+    let step: Double
+    let unit: String
+
+    private var formattedValue: String {
+        let decimals: Int
+
+        if step >= 1.0 {
+            decimals = 0
+        } else if step >= 0.1 {
+            decimals = 1
+        } else if step >= 0.01 {
+            decimals = 2
+        } else {
+            decimals = 3
+        }
+
+        return String(
+            format: "%.\(decimals)f%@",
+            value,
+            unit
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 10) {
+                Text(title)
+
+                Spacer(minLength: 8)
+
+                Text(formattedValue)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(
+                value: $value,
+                in: range,
+                step: step
+            )
+        }
+    }
+}
+
+// MARK: - Equation Step
+
+struct EquationStep: View {
+
+    let number: String
+    let title: String
+    let equation: String
+
+    var body: some View {
+        HStack(
+            alignment: .top,
+            spacing: 12
+        ) {
+            Text(number)
+                .fontWeight(.bold)
+                .frame(width: 25)
+
+            VStack(
+                alignment: .leading,
+                spacing: 3
+            ) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+
+                Text(equation)
+                    .font(
+                        .system(
+                            .body,
+                            design: .monospaced
+                        )
+                    )
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+// MARK: - Energy Bar
+
+struct EnergyBar: View {
+
+    let title: String
+    let valueMW: Double
+    let maximumMW: Double
+
+    private var fraction: Double {
+        guard maximumMW > 0 else {
+            return 0
+        }
+
+        return min(
+            max(valueMW / maximumMW, 0),
+            1
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                    .font(.caption)
+
+                Spacer()
+
+                Text(
+                    PowerFormatter.string(
+                        megawatts: valueMW
+                    )
+                )
+                .font(.caption)
+                .monospacedDigit()
+                .minimumScaleFactor(0.7)
+            }
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(
+                        cornerRadius: 5
+                    )
+                    .fill(
+                        Color.secondary.opacity(0.15)
+                    )
+
+                    RoundedRectangle(
+                        cornerRadius: 5
+                    )
+                    .fill(
+                        Color.accentColor.opacity(0.78)
+                    )
+                    .frame(
+                        width:
+                            geometry.size.width *
+                            fraction
+                    )
+                }
+            }
+            .frame(height: 8)
+        }
+    }
+}
+
+// MARK: - SceneKit View
 
 struct QRTLSceneView: UIViewRepresentable {
 
     let running: Bool
-    let fieldStrength: Double
+    let fieldStrengthTesla: Double
+    let fieldFrequencyKHz: Double
+    let couplingAltitudeKm: Double
+    let couplingRadiusKm: Double
+    let radialSpokeCount: Int
 
-    func makeUIView(context: Context) -> SCNView {
-
+    func makeUIView(
+        context: Context
+    ) -> SCNView {
         let view = SCNView()
 
         view.backgroundColor = UIColor(
-            red: 0.015,
+            red: 0.01,
             green: 0.02,
             blue: 0.05,
             alpha: 1
@@ -651,6 +1733,7 @@ struct QRTLSceneView: UIViewRepresentable {
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = false
         view.antialiasingMode = .multisampling4X
+        view.preferredFramesPerSecond = 60
 
         let scene = SCNScene()
 
@@ -665,8 +1748,13 @@ struct QRTLSceneView: UIViewRepresentable {
 
         buildScene(
             scene: scene,
-            fieldStrength: fieldStrength
+            fieldStrengthTesla: fieldStrengthTesla,
+            couplingAltitudeKm: couplingAltitudeKm,
+            couplingRadiusKm: couplingRadiusKm,
+            radialSpokeCount: radialSpokeCount
         )
+
+        updateScene(view: view)
 
         return view
     }
@@ -675,251 +1763,1094 @@ struct QRTLSceneView: UIViewRepresentable {
         _ view: SCNView,
         context: Context
     ) {
+        updateScene(view: view)
+    }
 
+    private func updateScene(
+        view: SCNView
+    ) {
         guard let root = view.scene?.rootNode else {
             return
         }
 
-        if let fieldNode = root.childNode(
+        let normalizedStrength = CGFloat(
+            min(
+                max(
+                    fieldStrengthTesla / 10.0,
+                    0.0
+                ),
+                1.0
+            )
+        )
+
+        if let fieldContainer = root.childNode(
             withName: "FieldContainer",
             recursively: true
         ) {
+            fieldContainer.opacity = running ? 1.0 : 0.10
 
-            fieldNode.opacity = running ? 1.0 : 0.25
+            fieldContainer.enumerateChildNodes { node, _ in
+                node.geometry?.firstMaterial?.emission.intensity =
+                    0.35 +
+                    normalizedStrength * 1.65
+            }
+        }
+
+        if let dipole = root.childNode(
+            withName: "QRTLDipole",
+            recursively: true
+        ) {
+            dipole.opacity = running ? 1.0 : 0.50
+
+            dipole.enumerateChildNodes { node, _ in
+                guard let name = node.name else {
+                    return
+                }
+
+                if name.contains("ExcitationCoil") {
+                    node.geometry?.firstMaterial?.emission.intensity =
+                        0.35 +
+                        normalizedStrength * 2.10
+                }
+            }
+
+            if let upperAssembly = dipole.childNode(
+                withName: "UpperCoilAssembly",
+                recursively: true
+            ) {
+                configureCoilRotation(
+                    node: upperAssembly,
+                    running: running,
+                    frequencyKHz: fieldFrequencyKHz,
+                    key: "upperCoilRotation"
+                )
+            }
+
+            if let lowerAssembly = dipole.childNode(
+                withName: "LowerCoilAssembly",
+                recursively: true
+            ) {
+                configureCoilRotation(
+                    node: lowerAssembly,
+                    running: running,
+                    frequencyKHz: fieldFrequencyKHz,
+                    key: "lowerCoilRotation"
+                )
+            }
         }
     }
 
-    // MARK: Scene Construction
-
     private func buildScene(
         scene: SCNScene,
-        fieldStrength: Double
+        fieldStrengthTesla: Double,
+        couplingAltitudeKm: Double,
+        couplingRadiusKm: Double,
+        radialSpokeCount: Int
     ) {
-
         let root = scene.rootNode
 
-        // ---------------------------------------------------------
-        // CAMERA
-        // ---------------------------------------------------------
+        createCamera(root: root)
+        createLights(root: root)
+        createGround(root: root)
+        createIonosphere(root: root)
 
-        let cameraNode = SCNNode()
+        createCouplingSurface(
+            root: root,
+            altitudeKm: couplingAltitudeKm,
+            radiusKm: couplingRadiusKm
+        )
 
+        let fieldContainer = SCNNode()
+        fieldContainer.name = "FieldContainer"
+
+        root.addChildNode(fieldContainer)
+
+        createFieldLines(
+            container: fieldContainer,
+            strengthTesla: fieldStrengthTesla
+        )
+
+        let dipole = SCNNode()
+        dipole.name = "QRTLDipole"
+
+        root.addChildNode(dipole)
+
+        createDipole(container: dipole)
+
+        createCollector(
+            root: root,
+            spokeCount: radialSpokeCount
+        )
+
+        createCurrentPath(root: root)
+        createTerminal(root: root)
+        createPowerConditioning(root: root)
+        createLoad(root: root)
+        createLabels(root: root)
+    }
+
+    // MARK: - Scene Setup
+
+    private func createCamera(
+        root: SCNNode
+    ) {
+        let node = SCNNode()
         let camera = SCNCamera()
 
         camera.fieldOfView = 58
         camera.zNear = 0.1
         camera.zFar = 500
 
-        cameraNode.camera = camera
-
-        cameraNode.position = SCNVector3(
+        node.camera = camera
+        node.position = SCNVector3(
             0,
             18,
             38
         )
-        
-        let target = SCNVector3(
-            0,
-            2,
-            0
+
+        node.look(
+            at: SCNVector3(
+                0,
+                8,
+                0
+            )
         )
 
-        cameraNode.look(
-            at: target,
-            up: SCNVector3(0, 1, 0),
-            localFront: SCNVector3(0, 0, -1)
-        )
+        root.addChildNode(node)
+    }
 
-        root.addChildNode(cameraNode)
+    private func createLights(
+        root: SCNNode
+    ) {
+        let ambientNode = SCNNode()
+        let ambient = SCNLight()
 
-        // ---------------------------------------------------------
-        // LIGHTS
-        // ---------------------------------------------------------
+        ambient.type = .ambient
+        ambient.intensity = 700
+        ambientNode.light = ambient
 
-        let ambient = SCNNode()
+        root.addChildNode(ambientNode)
 
-        let ambientLight = SCNLight()
+        let omniNode = SCNNode()
+        let omni = SCNLight()
 
-        ambientLight.type = .ambient
-        ambientLight.intensity = 700
+        omni.type = .omni
+        omni.intensity = 1_200
 
-        ambient.light = ambientLight
-
-        root.addChildNode(ambient)
-
-        let omni = SCNNode()
-
-        let omniLight = SCNLight()
-
-        omniLight.type = .omni
-        omniLight.intensity = 1200
-
-        omni.position = SCNVector3(
+        omniNode.position = SCNVector3(
             0,
             20,
             15
         )
 
-        omni.light = omniLight
+        omniNode.light = omni
 
-        root.addChildNode(omni)
+        root.addChildNode(omniNode)
+    }
 
-        // ---------------------------------------------------------
-        // GROUND
-        // ---------------------------------------------------------
+    private func createGround(
+        root: SCNNode
+    ) {
+        let geometry = SCNFloor()
 
-        let ground = SCNFloor()
+        geometry.reflectivity = 0.08
 
-        ground.reflectivity = 0.08
-        ground.firstMaterial?.diffuse.contents =
+        geometry.firstMaterial?.diffuse.contents = UIColor(
+            white: 0.06,
+            alpha: 1
+        )
+
+        root.addChildNode(
+            SCNNode(
+                geometry: geometry
+            )
+        )
+    }
+
+    private func createIonosphere(
+        root: SCNNode
+    ) {
+        let geometry = SCNSphere(
+            radius: 14
+        )
+
+        geometry.firstMaterial = transparentMaterial(
+            UIColor.systemTeal,
+            opacity: 0.06
+        )
+
+        let node = SCNNode(
+            geometry: geometry
+        )
+
+        node.name = "Ionosphere"
+
+        node.position = SCNVector3(
+            0,
+            20,
+            0
+        )
+
+        root.addChildNode(node)
+    }
+
+    private func createCouplingSurface(
+        root: SCNNode,
+        altitudeKm: Double,
+        radiusKm: Double
+    ) {
+        let sceneAltitude = Float(
+            min(
+                max(
+                    altitudeKm / 10.0,
+                    12.0
+                ),
+                28.0
+            )
+        )
+
+        let sceneRadius = CGFloat(
+            min(
+                max(
+                    radiusKm / 4.0,
+                    3.0
+                ),
+                12.0
+            )
+        )
+
+        let disk = SCNCylinder(
+            radius: sceneRadius,
+            height: 0.08
+        )
+
+        disk.firstMaterial = transparentMaterial(
+            UIColor.systemYellow,
+            opacity: 0.20
+        )
+
+        let diskNode = SCNNode(
+            geometry: disk
+        )
+
+        diskNode.name = "CouplingSurface"
+
+        diskNode.position = SCNVector3(
+            0,
+            sceneAltitude,
+            0
+        )
+
+        root.addChildNode(diskNode)
+
+        let rim = SCNTorus(
+            ringRadius: sceneRadius,
+            pipeRadius: 0.06
+        )
+
+        rim.firstMaterial = emissiveMaterial(
+            UIColor.systemYellow
+        )
+
+        let rimNode = SCNNode(
+            geometry: rim
+        )
+
+        rimNode.position = diskNode.position
+
+        root.addChildNode(rimNode)
+
+        addLabel(
+            "COUPLING SURFACE Φ",
+            position: SCNVector3(
+                0,
+                sceneAltitude + 1.0,
+                0
+            ),
+            root: root
+        )
+    }
+
+    // MARK: - Field Visualization
+
+    private func createFieldLines(
+        container: SCNNode,
+        strengthTesla: Double
+    ) {
+        let count = 20
+
+        let lineRadius = CGFloat(
+            0.018 +
+            min(
+                max(
+                    strengthTesla,
+                    0.001
+                ),
+                10.0
+            ) * 0.008
+        )
+
+        for index in 0..<count {
+            let angle =
+                Float(index) /
+                Float(count) *
+                Float.pi *
+                2.0
+
+            let radialScale = Float(
+                2.8 +
+                Double(index % 4) * 1.15
+            )
+
+            let x = cos(angle) * radialScale
+            let z = sin(angle) * radialScale
+
+            let points: [SCNVector3] = [
+                SCNVector3(
+                    x * 0.32,
+                    8.65,
+                    z * 0.32
+                ),
+                SCNVector3(
+                    x,
+                    11.8,
+                    z
+                ),
+                SCNVector3(
+                    x * 1.65,
+                    16.2,
+                    z * 1.65
+                ),
+                SCNVector3(
+                    x * 1.25,
+                    20.0,
+                    z * 1.25
+                ),
+                SCNVector3(
+                    x * 0.72,
+                    13.0,
+                    z * 0.72
+                ),
+                SCNVector3(
+                    x * 0.32,
+                    3.35,
+                    z * 0.32
+                )
+            ]
+
+            let fieldLine = lineNode(
+                points: points,
+                radius: lineRadius,
+                color: UIColor.systemCyan
+            )
+
+            fieldLine.name = "MagneticFluxLine"
+
+            container.addChildNode(fieldLine)
+
+            addMovingParticle(
+                to: container,
+                points: points,
+                delay: Double(index) * 0.08,
+                color: UIColor.white
+            )
+        }
+    }
+
+    // MARK: - Dipole Generator
+
+    private func createDipole(
+        container: SCNNode
+    ) {
+        let upperPoleY: Float = 8.4
+        let lowerPoleY: Float = 3.6
+
+        let coreGeometry = SCNCylinder(
+            radius: 0.72,
+            height: 5.8
+        )
+
+        coreGeometry.firstMaterial = metallicMaterial(
             UIColor(
-                white: 0.06,
+                red: 0.16,
+                green: 0.18,
+                blue: 0.22,
                 alpha: 1
             )
-
-        let groundNode = SCNNode(
-            geometry: ground
         )
 
-        root.addChildNode(groundNode)
+        let core = SCNNode(
+            geometry: coreGeometry
+        )
 
-        // ---------------------------------------------------------
-        // IONOSPHERE
-        // ---------------------------------------------------------
+        core.name = "FerromagneticCore"
 
-        let ionosphereGeometry =
-            SCNSphere(radius: 14)
+        core.position = SCNVector3(
+            0,
+            6.0,
+            0
+        )
 
-        ionosphereGeometry.firstMaterial =
-            transparentMaterial(
-                UIColor.systemTeal,
-                opacity: 0.08
-            )
+        container.addChildNode(core)
 
-        let ionosphereNode =
-            SCNNode(
-                geometry: ionosphereGeometry
-            )
-
-        ionosphereNode.name = "Ionosphere"
-
-        ionosphereNode.position =
-            SCNVector3(
+        createPolePiece(
+            name: "NorthPole",
+            position: SCNVector3(
                 0,
-                17,
+                upperPoleY,
+                0
+            ),
+            color: UIColor.systemRed,
+            container: container
+        )
+
+        createPolePiece(
+            name: "SouthPole",
+            position: SCNVector3(
+                0,
+                lowerPoleY,
+                0
+            ),
+            color: UIColor.systemBlue,
+            container: container
+        )
+
+        let upperAssembly = SCNNode()
+        upperAssembly.name = "UpperCoilAssembly"
+
+        upperAssembly.position = SCNVector3(
+            0,
+            7.25,
+            0
+        )
+
+        container.addChildNode(upperAssembly)
+
+        let lowerAssembly = SCNNode()
+        lowerAssembly.name = "LowerCoilAssembly"
+
+        lowerAssembly.position = SCNVector3(
+            0,
+            4.75,
+            0
+        )
+
+        container.addChildNode(lowerAssembly)
+
+        createExcitationCoil(
+            name: "UpperExcitationCoil",
+            color: UIColor.systemPink,
+            turns: 8,
+            assembly: upperAssembly
+        )
+
+        createExcitationCoil(
+            name: "LowerExcitationCoil",
+            color: UIColor.systemCyan,
+            turns: 8,
+            assembly: lowerAssembly
+        )
+
+        createInsulatorRing(
+            position: SCNVector3(
+                0,
+                7.25,
+                0
+            ),
+            container: container
+        )
+
+        createInsulatorRing(
+            position: SCNVector3(
+                0,
+                4.75,
+                0
+            ),
+            container: container
+        )
+
+        createBusBar(
+            from: SCNVector3(
+                -3.8,
+                7.25,
+                0
+            ),
+            to: SCNVector3(
+                -1.9,
+                7.25,
+                0
+            ),
+            color: UIColor.systemOrange,
+            container: container
+        )
+
+        createBusBar(
+            from: SCNVector3(
+                -3.8,
+                4.75,
+                0
+            ),
+            to: SCNVector3(
+                -1.9,
+                4.75,
+                0
+            ),
+            color: UIColor.systemOrange,
+            container: container
+        )
+
+        let controllerGeometry = SCNBox(
+            width: 1.7,
+            height: 2.3,
+            length: 1.5,
+            chamferRadius: 0.14
+        )
+
+        controllerGeometry.firstMaterial = metallicMaterial(
+            UIColor(
+                red: 0.12,
+                green: 0.14,
+                blue: 0.18,
+                alpha: 1
+            )
+        )
+
+        let controller = SCNNode(
+            geometry: controllerGeometry
+        )
+
+        controller.position = SCNVector3(
+            -4.7,
+            5.95,
+            0
+        )
+
+        container.addChildNode(controller)
+
+        let lampGeometry = SCNSphere(
+            radius: 0.15
+        )
+
+        lampGeometry.firstMaterial = emissiveMaterial(
+            UIColor.systemOrange
+        )
+
+        let lamp = SCNNode(
+            geometry: lampGeometry
+        )
+
+        lamp.position = SCNVector3(
+            -4.7,
+            6.3,
+            0.78
+        )
+
+        container.addChildNode(lamp)
+    }
+
+    private func createPolePiece(
+        name: String,
+        position: SCNVector3,
+        color: UIColor,
+        container: SCNNode
+    ) {
+        let poleGeometry = SCNCylinder(
+            radius: 1.55,
+            height: 0.62
+        )
+
+        poleGeometry.firstMaterial = metallicMaterial(
+            UIColor(
+                red: 0.20,
+                green: 0.22,
+                blue: 0.26,
+                alpha: 1
+            )
+        )
+
+        let pole = SCNNode(
+            geometry: poleGeometry
+        )
+
+        pole.name = name
+        pole.position = position
+
+        container.addChildNode(pole)
+
+        let faceGeometry = SCNCylinder(
+            radius: 1.20,
+            height: 0.16
+        )
+
+        faceGeometry.firstMaterial = emissiveMaterial(
+            color
+        )
+
+        let face = SCNNode(
+            geometry: faceGeometry
+        )
+
+        face.name = "\(name)FieldFace"
+        face.position = position
+
+        container.addChildNode(face)
+    }
+
+    private func createExcitationCoil(
+        name: String,
+        color: UIColor,
+        turns: Int,
+        assembly: SCNNode
+    ) {
+        let coilRadius: CGFloat = 2.15
+        let turnSpacing: Float = 0.18
+
+        for index in 0..<turns {
+            let geometry = SCNTorus(
+                ringRadius: coilRadius,
+                pipeRadius: 0.075
+            )
+
+            let material = emissiveMaterial(
+                color
+            )
+
+            material.emission.intensity = 1.15
+
+            geometry.firstMaterial = material
+
+            let ring = SCNNode(
+                geometry: geometry
+            )
+
+            ring.name = "\(name)_ExcitationCoil_\(index)"
+
+            let offset =
+                Float(index - turns / 2) *
+                turnSpacing
+
+            ring.position = SCNVector3(
+                0,
+                offset,
                 0
             )
 
-        root.addChildNode(ionosphereNode)
+            assembly.addChildNode(ring)
+        }
 
-        // ---------------------------------------------------------
-        // FIELD CONTAINER
-        // ---------------------------------------------------------
-
-        let fieldContainer = SCNNode()
-
-        fieldContainer.name = "FieldContainer"
-
-        root.addChildNode(fieldContainer)
-
-        buildFieldLines(
-            container: fieldContainer,
-            strength: fieldStrength
+        let housingGeometry = SCNTorus(
+            ringRadius: coilRadius + 0.32,
+            pipeRadius: 0.10
         )
 
-        // ---------------------------------------------------------
-        // QRTL DIPOLE
-        // ---------------------------------------------------------
-
-        let dipoleContainer = SCNNode()
-
-        dipoleContainer.name = "QRTLDipole"
-
-        root.addChildNode(dipoleContainer)
-
-        createDipole(
-            container: dipoleContainer
+        housingGeometry.firstMaterial = metallicMaterial(
+            UIColor(
+                red: 0.20,
+                green: 0.22,
+                blue: 0.27,
+                alpha: 1
+            )
         )
 
-        // ---------------------------------------------------------
-        // COLLECTOR
-        // ---------------------------------------------------------
-
-        createCollector(
-            root: root
+        let housing = SCNNode(
+            geometry: housingGeometry
         )
 
-        // ---------------------------------------------------------
-        // CURRENT PATHS
-        // ---------------------------------------------------------
+        housing.name = "\(name)_Housing"
 
-        createCurrentPaths(
-            root: root
+        assembly.addChildNode(housing)
+    }
+
+    private func createInsulatorRing(
+        position: SCNVector3,
+        container: SCNNode
+    ) {
+        let geometry = SCNTorus(
+            ringRadius: 1.55,
+            pipeRadius: 0.12
         )
 
-        // ---------------------------------------------------------
-        // CENTRAL TERMINAL
-        // ---------------------------------------------------------
-
-        createTerminal(
-            root: root
+        geometry.firstMaterial = metallicMaterial(
+            UIColor(
+                red: 0.85,
+                green: 0.85,
+                blue: 0.88,
+                alpha: 1
+            )
         )
 
-        // ---------------------------------------------------------
-        // POWER CONDITIONING
-        // ---------------------------------------------------------
-
-        createPowerConditioning(
-            root: root
+        let node = SCNNode(
+            geometry: geometry
         )
 
-        // ---------------------------------------------------------
-        // LOAD
-        // ---------------------------------------------------------
+        node.position = position
 
-        createLoad(
-            root: root
+        container.addChildNode(node)
+    }
+
+    private func createBusBar(
+        from start: SCNVector3,
+        to end: SCNVector3,
+        color: UIColor,
+        container: SCNNode
+    ) {
+        let geometry = SCNCylinder(
+            radius: 0.11,
+            height: CGFloat(
+                SCNVector3.distance(
+                    start,
+                    end
+                )
+            )
         )
 
-        // ---------------------------------------------------------
-        // LABELS
-        // ---------------------------------------------------------
-
-        addLabel(
-            "IONOSPHERE",
-            position: SCNVector3(
-                -5,
-                28,
-                0
-            ),
-            root: root
+        geometry.firstMaterial = emissiveMaterial(
+            color
         )
 
-        addLabel(
-            "QRTL DIPOLE",
-            position: SCNVector3(
-                -5,
-                10,
-                0
-            ),
-            root: root
+        let node = SCNNode(
+            geometry: geometry
         )
 
-        addLabel(
-            "CONDUCTIVE COLLECTOR",
-            position: SCNVector3(
-                -7,
+        node.position = (start + end) * 0.5
+
+        node.look(
+            at: end,
+            up: SCNVector3(
+                0,
                 1,
                 0
             ),
+            localFront: SCNVector3(
+                0,
+                1,
+                0
+            )
+        )
+
+        container.addChildNode(node)
+    }
+
+    private func configureCoilRotation(
+        node: SCNNode,
+        running: Bool,
+        frequencyKHz: Double,
+        key: String
+    ) {
+        node.removeAnimation(
+            forKey: key
+        )
+
+        guard running, frequencyKHz > 0 else {
+            return
+        }
+
+        let normalizedFrequency = min(
+            max(
+                frequencyKHz / 100.0,
+                0.01
+            ),
+            1.0
+        )
+
+        let rotation = CABasicAnimation(
+            keyPath: "rotation"
+        )
+
+        rotation.fromValue = NSValue(
+            scnVector4: SCNVector4(
+                0,
+                1,
+                0,
+                0
+            )
+        )
+
+        rotation.toValue = NSValue(
+            scnVector4: SCNVector4(
+                0,
+                1,
+                0,
+                Float.pi * 2.0
+            )
+        )
+
+        rotation.duration = max(
+            0.45,
+            3.0 - normalizedFrequency * 2.4
+        )
+
+        rotation.repeatCount = .infinity
+
+        node.addAnimation(
+            rotation,
+            forKey: key
+        )
+    }
+
+    // MARK: - Collector Network
+
+    private func createCollector(
+        root: SCNNode,
+        spokeCount: Int
+    ) {
+        let collectorGeometry = SCNCylinder(
+            radius: 9,
+            height: 0.18
+        )
+
+        collectorGeometry.firstMaterial = metallicMaterial(
+            UIColor(
+                white: 0.55,
+                alpha: 1
+            )
+        )
+
+        let collector = SCNNode(
+            geometry: collectorGeometry
+        )
+
+        collector.name = "RadialCollectorNetwork"
+
+        collector.position = SCNVector3(
+            0,
+            0.5,
+            0
+        )
+
+        root.addChildNode(collector)
+
+        let outerRing = SCNTorus(
+            ringRadius: 7.5,
+            pipeRadius: 0.12
+        )
+
+        outerRing.firstMaterial = emissiveMaterial(
+            UIColor.systemCyan
+        )
+
+        let outerRingNode = SCNNode(
+            geometry: outerRing
+        )
+
+        outerRingNode.position = SCNVector3(
+            0,
+            0.70,
+            0
+        )
+
+        root.addChildNode(outerRingNode)
+
+        let visibleSpokeCount = min(
+            max(
+                spokeCount,
+                4
+            ),
+            64
+        )
+
+        for index in 0..<visibleSpokeCount {
+            let angle =
+                Float(index) /
+                Float(visibleSpokeCount) *
+                Float.pi *
+                2.0
+
+            let length: Float = 8.0
+
+            let conductor = lineNode(
+                points: [
+                    SCNVector3(
+                        cos(angle) * length,
+                        0.67,
+                        sin(angle) * length
+                    ),
+                    SCNVector3(
+                        0,
+                        0.67,
+                        0
+                    )
+                ],
+                radius: 0.045,
+                color: UIColor.systemCyan
+            )
+
+            root.addChildNode(conductor)
+        }
+
+        for radius in stride(
+            from: 2.0,
+            through: 7.0,
+            by: 1.25
+        ) {
+            let geometry = SCNTorus(
+                ringRadius: CGFloat(radius),
+                pipeRadius: 0.03
+            )
+
+            geometry.firstMaterial = metallicMaterial(
+                UIColor.systemGray
+            )
+
+            let ring = SCNNode(
+                geometry: geometry
+            )
+
+            ring.position = SCNVector3(
+                0,
+                0.69,
+                0
+            )
+
+            root.addChildNode(ring)
+        }
+    }
+
+    private func createCurrentPath(
+        root: SCNNode
+    ) {
+        let points: [SCNVector3] = [
+            SCNVector3(0, 0.67, 0),
+            SCNVector3(0, -1.5, 0),
+            SCNVector3(0, -3.5, 0),
+            SCNVector3(4, -4.5, 0),
+            SCNVector3(8, -4.5, 0)
+        ]
+
+        let currentPath = lineNode(
+            points: points,
+            radius: 0.14,
+            color: UIColor.systemYellow
+        )
+
+        root.addChildNode(currentPath)
+
+        addMovingParticle(
+            to: root,
+            points: points,
+            delay: 0,
+            color: UIColor.systemYellow
+        )
+    }
+
+    private func createTerminal(
+        root: SCNNode
+    ) {
+        let geometry = SCNSphere(
+            radius: 0.55
+        )
+
+        geometry.firstMaterial = emissiveMaterial(
+            UIColor.systemYellow
+        )
+
+        let terminal = SCNNode(
+            geometry: geometry
+        )
+
+        terminal.position = SCNVector3(
+            0,
+            -2,
+            0
+        )
+
+        root.addChildNode(terminal)
+    }
+
+    private func createPowerConditioning(
+        root: SCNNode
+    ) {
+        let geometry = SCNBox(
+            width: 4,
+            height: 2.5,
+            length: 2.5,
+            chamferRadius: 0.2
+        )
+
+        geometry.firstMaterial = metallicMaterial(
+            UIColor.systemGray
+        )
+
+        let node = SCNNode(
+            geometry: geometry
+        )
+
+        node.position = SCNVector3(
+            7,
+            3,
+            0
+        )
+
+        root.addChildNode(node)
+    }
+
+    private func createLoad(
+        root: SCNNode
+    ) {
+        let geometry = SCNBox(
+            width: 4,
+            height: 2,
+            length: 2,
+            chamferRadius: 0.2
+        )
+
+        geometry.firstMaterial = emissiveMaterial(
+            UIColor.systemGreen
+        )
+
+        let node = SCNNode(
+            geometry: geometry
+        )
+
+        node.position = SCNVector3(
+            7,
+            0,
+            0
+        )
+
+        root.addChildNode(node)
+    }
+
+    // MARK: - Scene Labels
+
+    private func createLabels(
+        root: SCNNode
+    ) {
+        addLabel(
+            "IONOSPHERIC REGION",
+            position: SCNVector3(
+                -5,
+                30,
+                0
+            ),
             root: root
         )
 
         addLabel(
-            "CENTRAL TERMINAL",
+            "NORTH POLE / COIL",
             position: SCNVector3(
                 -6,
-                -2,
+                9,
+                0
+            ),
+            root: root
+        )
+
+        addLabel(
+            "SOUTH POLE / COIL",
+            position: SCNVector3(
+                -6,
+                3,
+                0
+            ),
+            root: root
+        )
+
+        addLabel(
+            "RADIAL COLLECTOR",
+            position: SCNVector3(
+                -5,
+                1.5,
                 0
             ),
             root: root
@@ -928,562 +2859,115 @@ struct QRTLSceneView: UIViewRepresentable {
         addLabel(
             "POWER CONDITIONING",
             position: SCNVector3(
-                8,
-                3,
+                7,
+                4.8,
                 0
             ),
             root: root
         )
 
         addLabel(
-            "10 MW LOAD",
+            "LOAD",
             position: SCNVector3(
-                8,
-                1,
+                7,
+                1.7,
                 0
             ),
             root: root
         )
     }
 
-    // MARK: - Field Lines
-
-    private func buildFieldLines(
-        container: SCNNode,
-        strength: Double
+    private func addLabel(
+        _ text: String,
+        position: SCNVector3,
+        root: SCNNode
     ) {
-
-        let count = 18
-
-        for i in 0..<count {
-
-            let angle =
-                Float(i) /
-                Float(count) *
-                Float.pi * 2
-
-            let radius: CGFloat = 7.0
-
-            let points: [SCNVector3] = [
-
-                SCNVector3(
-                    Float(cos(angle)) * Float(radius),
-                    19,
-                    Float(sin(angle)) * Float(radius)
-                ),
-
-                SCNVector3(
-                    Float(cos(angle)) * 5,
-                    14,
-                    Float(sin(angle)) * 5
-                ),
-
-                SCNVector3(
-                    Float(cos(angle)) * 3,
-                    9,
-                    Float(sin(angle)) * 3
-                ),
-
-                SCNVector3(
-                    Float(cos(angle)) * 2,
-                    4,
-                    Float(sin(angle)) * 2
-                )
-            ]
-
-            let line = lineNode(
-                points: points,
-                radius: 0.025 + CGFloat(strength) * 0.01
-            )
-
-            container.addChildNode(line)
-
-            addMovingParticle(
-                to: container,
-                points: points,
-                delay: Double(i) * 0.08
-            )
-        }
-    }
-
-    // MARK: - Dipole
-
-    private func createDipole(
-        container: SCNNode
-    ) {
-
-        let upperGeometry =
-            SCNSphere(radius: 1.8)
-
-        upperGeometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemPink
-            )
-
-        let upper =
-            SCNNode(
-                geometry: upperGeometry
-            )
-
-        upper.position =
-            SCNVector3(
-                0,
-                8,
-                0
-            )
-
-        container.addChildNode(upper)
-
-        let lowerGeometry =
-            SCNSphere(radius: 1.8)
-
-        lowerGeometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemBlue
-            )
-
-        let lower =
-            SCNNode(
-                geometry: lowerGeometry
-            )
-
-        lower.position =
-            SCNVector3(
-                0,
-                4,
-                0
-            )
-
-        container.addChildNode(lower)
-
-        let centerGeometry =
-            SCNCylinder(
-                radius: 0.65,
-                height: 4
-            )
-
-        centerGeometry.firstMaterial =
-            metallicMaterial(
-                UIColor.darkGray
-            )
-
-        let center =
-            SCNNode(
-                geometry: centerGeometry
-            )
-
-        center.position =
-            SCNVector3(
-                0,
-                6,
-                0
-            )
-
-        container.addChildNode(center)
-
-        let ringGeometry =
-            SCNTorus(
-                ringRadius: 3.2,
-                pipeRadius: 0.08
-            )
-
-        ringGeometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemPurple
-            )
-
-        let ring =
-            SCNNode(
-                geometry: ringGeometry
-            )
-
-        ring.position =
-            SCNVector3(
-                0,
-                6,
-                0
-            )
-
-        container.addChildNode(ring)
-
-        let rotation =
-            CABasicAnimation(
-                keyPath: "rotation"
-            )
-
-        rotation.fromValue =
-            NSValue(
-                scnVector4: SCNVector4(
-                    0,
-                    1,
-                    0,
-                    0
-                )
-            )
-
-        rotation.toValue =
-            NSValue(
-                scnVector4: SCNVector4(
-                    0,
-                    1,
-                    0,
-                    Float.pi * 2
-                )
-            )
-
-        rotation.duration = 5
-        rotation.repeatCount = .infinity
-
-        ring.addAnimation(
-            rotation,
-            forKey: "dipoleRotation"
+        let geometry = SCNText(
+            string: text,
+            extrusionDepth: 0.01
         )
-    }
 
-    // MARK: - Collector
-
-    private func createCollector(
-        root: SCNNode
-    ) {
-
-        let collectorGeometry =
-            SCNCylinder(
-                radius: 9,
-                height: 0.18
-            )
-
-        collectorGeometry.firstMaterial =
-            metallicMaterial(
-                UIColor(
-                    white: 0.55,
-                    alpha: 1
-                )
-            )
-
-        let collector =
-            SCNNode(
-                geometry: collectorGeometry
-            )
-
-        collector.name = "ConductiveCollector"
-
-        collector.position =
-            SCNVector3(
-                0,
-                0.5,
-                0
-            )
-
-        root.addChildNode(collector)
-
-        // Shallow bowl appearance
-
-        let bowlGeometry =
-            SCNTorus(
-                ringRadius: 7.5,
-                pipeRadius: 0.12
-            )
-
-        bowlGeometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemCyan
-            )
-
-        let bowl =
-            SCNNode(
-                geometry: bowlGeometry
-            )
-
-        bowl.position =
-            SCNVector3(
-                0,
-                0.7,
-                0
-            )
-
-        root.addChildNode(bowl)
-
-        // Radial collection conductors
-
-        for i in 0..<16 {
-
-            let angle =
-                Float(i) /
-                16 *
-                Float.pi * 2
-
-            let length: Float = 8
-
-            let points = [
-
-                SCNVector3(
-                    cos(angle) * length,
-                    0.65,
-                    sin(angle) * length
-                ),
-
-                SCNVector3(
-                    0,
-                    0.65,
-                    0
-                )
-            ]
-
-            let conductor =
-                lineNode(
-                    points: points,
-                    radius: 0.055
-                )
-
-            root.addChildNode(
-                conductor
-            )
-        }
-
-        // Circumferential rings
-
-        for radius in stride(
-            from: 2.0,
-            through: 7.0,
-            by: 1.0
-        ) {
-
-            let torus =
-                SCNTorus(
-                    ringRadius: CGFloat(radius),
-                    pipeRadius: 0.035
-                )
-
-            torus.firstMaterial =
-                metallicMaterial(
-                    UIColor.systemGray
-                )
-
-            let node =
-                SCNNode(
-                    geometry: torus
-                )
-
-            node.position =
-                SCNVector3(
-                    0,
-                    0.67,
-                    0
-                )
-
-            root.addChildNode(node)
-        }
-    }
-
-    // MARK: - Current Paths
-
-    private func createCurrentPaths(
-        root: SCNNode
-    ) {
-
-        let pathPoints = [
-
-            SCNVector3(
-                0,
-                0.65,
-                0
-            ),
-
-            SCNVector3(
-                0,
-                -1.5,
-                0
-            ),
-
-            SCNVector3(
-                0,
-                -3.5,
-                0
-            ),
-
-            SCNVector3(
-                4,
-                -4.5,
-                0
-            ),
-
-            SCNVector3(
-                8,
-                -4.5,
-                0
-            )
-        ]
-
-        let current =
-            lineNode(
-                points: pathPoints,
-                radius: 0.14
-            )
-
-        root.addChildNode(current)
-
-        addMovingParticle(
-            to: root,
-            points: pathPoints,
-            delay: 0
+        geometry.font = UIFont.systemFont(
+            ofSize: 0.42,
+            weight: .bold
         )
+
+        geometry.flatness = 0.1
+
+        geometry.firstMaterial = emissiveMaterial(
+            UIColor.white
+        )
+
+        let label = SCNNode(
+            geometry: geometry
+        )
+
+        label.position = position
+
+        let bounds = geometry.boundingBox
+
+        let width =
+            bounds.max.x -
+            bounds.min.x
+
+        label.pivot = SCNMatrix4MakeTranslation(
+            width / 2.0,
+            0,
+            0
+        )
+
+        root.addChildNode(label)
     }
 
-    // MARK: - Terminal
-
-    private func createTerminal(
-        root: SCNNode
-    ) {
-
-        let geometry =
-            SCNSphere(
-                radius: 0.55
-            )
-
-        geometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemYellow
-            )
-
-        let node =
-            SCNNode(
-                geometry: geometry
-            )
-
-        node.position =
-            SCNVector3(
-                0,
-                -2,
-                0
-            )
-
-        root.addChildNode(node)
-    }
-
-    // MARK: - Power Conditioning
-
-    private func createPowerConditioning(
-        root: SCNNode
-    ) {
-
-        let box =
-            SCNBox(
-                width: 4,
-                height: 2.5,
-                length: 2.5,
-                chamferRadius: 0.2
-            )
-
-        box.firstMaterial =
-            metallicMaterial(
-                UIColor.systemGray
-            )
-
-        let node =
-            SCNNode(
-                geometry: box
-            )
-
-        node.position =
-            SCNVector3(
-                7,
-                3,
-                0
-            )
-
-        root.addChildNode(node)
-    }
-
-    // MARK: - Load
-
-    private func createLoad(
-        root: SCNNode
-    ) {
-
-        let geometry =
-            SCNBox(
-                width: 4,
-                height: 2,
-                length: 2,
-                chamferRadius: 0.2
-            )
-
-        geometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemGreen
-            )
-
-        let node =
-            SCNNode(
-                geometry: geometry
-            )
-
-        node.position =
-            SCNVector3(
-                7,
-                0,
-                0
-            )
-
-        root.addChildNode(node)
-    }
-
-    // MARK: - Moving Energy Particle
+    // MARK: - Line and Particle Helpers
 
     private func addMovingParticle(
         to parent: SCNNode,
         points: [SCNVector3],
-        delay: Double
+        delay: Double,
+        color: UIColor
     ) {
-
         guard points.count >= 2 else {
             return
         }
 
-        let geometry =
-            SCNSphere(
-                radius: 0.09
-            )
+        let geometry = SCNSphere(
+            radius: 0.09
+        )
 
-        geometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.white
-            )
+        geometry.firstMaterial = emissiveMaterial(
+            color
+        )
 
-        let particle =
-            SCNNode(
-                geometry: geometry
-            )
+        let particle = SCNNode(
+            geometry: geometry
+        )
 
-        particle.position =
-            points[0]
+        particle.position = points[0]
 
         parent.addChildNode(particle)
 
         var actions: [SCNAction] = []
 
-        for i in 0..<(points.count - 1) {
+        for index in 0..<(points.count - 1) {
+            let start = points[index]
+            let end = points[index + 1]
 
-            let destination =
-                points[i + 1]
+            let distance = SCNVector3.distance(
+                start,
+                end
+            )
 
-            let distance =
-                SCNVector3.distance(
-                    points[i],
-                    destination
+            let duration = TimeInterval(
+                max(
+                    Double(distance) * 0.08,
+                    0.05
                 )
-
-            let duration =
-                TimeInterval(
-                    max(
-                        Double(distance) * 0.08,
-                        0.05
-                    )
-                )
+            )
 
             actions.append(
                 SCNAction.move(
-                    to: destination,
+                    to: end,
                     duration: duration
                 )
             )
@@ -1496,46 +2980,40 @@ struct QRTLSceneView: UIViewRepresentable {
             )
         )
 
-        let sequence =
-            SCNAction.sequence(actions)
-
-        let repeatAction =
-            SCNAction.repeatForever(sequence)
+        let sequence = SCNAction.sequence(
+            actions
+        )
 
         particle.runAction(
             SCNAction.sequence([
                 SCNAction.wait(
                     duration: delay
                 ),
-                repeatAction
+                SCNAction.repeatForever(
+                    sequence
+                )
             ])
         )
     }
 
-    // MARK: - Line
-
     private func lineNode(
         points: [SCNVector3],
-        radius: CGFloat
+        radius: CGFloat,
+        color: UIColor
     ) -> SCNNode {
-
         let container = SCNNode()
 
         guard points.count >= 2 else {
             return container
         }
 
-        for i in 0..<(points.count - 1) {
-
-            let start = points[i]
-            let end = points[i + 1]
-
-            let segment =
-                cylinderBetween(
-                    start: start,
-                    end: end,
-                    radius: radius
-                )
+        for index in 0..<(points.count - 1) {
+            let segment = cylinderBetween(
+                start: points[index],
+                end: points[index + 1],
+                radius: radius,
+                color: color
+            )
 
             container.addChildNode(segment)
         }
@@ -1543,38 +3021,31 @@ struct QRTLSceneView: UIViewRepresentable {
         return container
     }
 
-    // MARK: - Cylinder Between Points
-
     private func cylinderBetween(
         start: SCNVector3,
         end: SCNVector3,
-        radius: CGFloat
+        radius: CGFloat,
+        color: UIColor
     ) -> SCNNode {
+        let length = SCNVector3.distance(
+            start,
+            end
+        )
 
-        let vector =
-            end - start
+        let geometry = SCNCylinder(
+            radius: radius,
+            height: CGFloat(length)
+        )
 
-        let length =
-            vector.length
+        geometry.firstMaterial = emissiveMaterial(
+            color
+        )
 
-        let cylinder =
-            SCNCylinder(
-                radius: radius,
-                height: CGFloat(length)
-            )
+        let node = SCNNode(
+            geometry: geometry
+        )
 
-        cylinder.firstMaterial =
-            emissiveMaterial(
-                UIColor.systemCyan
-            )
-
-        let node =
-            SCNNode(
-                geometry: cylinder
-            )
-
-        node.position =
-            (start + end) * 0.5
+        node.position = (start + end) * 0.5
 
         node.look(
             at: end,
@@ -1593,62 +3064,11 @@ struct QRTLSceneView: UIViewRepresentable {
         return node
     }
 
-    // MARK: - Labels
-
-    private func addLabel(
-        _ text: String,
-        position: SCNVector3,
-        root: SCNNode
-    ) {
-
-        let textGeometry =
-            SCNText(
-                string: text,
-                extrusionDepth: 0.01
-            )
-
-        textGeometry.font =
-            UIFont.systemFont(
-                ofSize: 0.45,
-                weight: .bold
-            )
-
-        textGeometry.flatness = 0.1
-
-        textGeometry.firstMaterial =
-            emissiveMaterial(
-                UIColor.white
-            )
-
-        let node =
-            SCNNode(
-                geometry: textGeometry
-            )
-
-        node.position = position
-
-        let (min, max) =
-            textGeometry.boundingBox
-
-        let width =
-            max.x - min.x
-
-        node.pivot =
-            SCNMatrix4MakeTranslation(
-                width / 2,
-                0,
-                0
-            )
-
-        root.addChildNode(node)
-    }
-
     // MARK: - Materials
 
     private func emissiveMaterial(
         _ color: UIColor
     ) -> SCNMaterial {
-
         let material = SCNMaterial()
 
         material.diffuse.contents = color
@@ -1660,7 +3080,6 @@ struct QRTLSceneView: UIViewRepresentable {
     private func metallicMaterial(
         _ color: UIColor
     ) -> SCNMaterial {
-
         let material = SCNMaterial()
 
         material.diffuse.contents = color
@@ -1674,7 +3093,6 @@ struct QRTLSceneView: UIViewRepresentable {
         _ color: UIColor,
         opacity: CGFloat
     ) -> SCNMaterial {
-
         let material = SCNMaterial()
 
         material.diffuse.contents = color
@@ -1685,202 +3103,7 @@ struct QRTLSceneView: UIViewRepresentable {
     }
 }
 
-
-// MARK: - Output Value
-
-struct OutputValue: View {
-
-    let title: String
-    let value: String
-
-    var body: some View {
-
-        VStack(spacing: 5) {
-
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text(value)
-                .font(.headline)
-                .fontWeight(.bold)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-
-// MARK: - Metric Row
-
-struct MetricRow: View {
-
-    let name: String
-    let value: String
-
-    var body: some View {
-
-        HStack {
-
-            Text(name)
-
-            Spacer()
-
-            Text(value)
-                .fontWeight(.semibold)
-                .monospacedDigit()
-        }
-        .font(.subheadline)
-    }
-}
-
-
-// MARK: - Parameter Slider
-
-struct ParameterSlider: View {
-
-    let title: String
-
-    @Binding var value: Double
-
-    let range: ClosedRange<Double>
-    let step: Double
-    let unit: String
-
-    var body: some View {
-
-        VStack(alignment: .leading, spacing: 5) {
-
-            HStack {
-
-                Text(title)
-
-                Spacer()
-
-                Text(
-                    String(
-                        format: "%.3f%@",
-                        value,
-                        unit
-                    )
-                )
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-            }
-
-            Slider(
-                value: $value,
-                in: range,
-                step: step
-            )
-        }
-    }
-}
-
-
-// MARK: - Equation Step
-
-struct EquationStep: View {
-
-    let number: String
-    let title: String
-    let equation: String
-
-    var body: some View {
-
-        HStack(alignment: .top, spacing: 12) {
-
-            Text(number)
-                .fontWeight(.bold)
-                .frame(width: 25)
-
-            VStack(alignment: .leading, spacing: 3) {
-
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-
-                Text(equation)
-                    .font(.system(
-                        .body,
-                        design: .monospaced
-                    ))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-    }
-}
-
-
-// MARK: - Energy Bar
-
-struct EnergyBar: View {
-
-    let title: String
-    let value: Double
-    let maximum: Double
-
-    private var fraction: Double {
-
-        guard maximum > 0 else {
-            return 0
-        }
-
-        return min(
-            max(value / maximum, 0),
-            1
-        )
-    }
-
-    var body: some View {
-
-        VStack(alignment: .leading, spacing: 5) {
-
-            HStack {
-
-                Text(title)
-                    .font(.caption)
-
-                Spacer()
-
-                Text(
-                    String(
-                        format: "%.3f MW",
-                        value
-                    )
-                )
-                .font(.caption)
-                .monospacedDigit()
-            }
-
-            GeometryReader { geometry in
-
-                ZStack(alignment: .leading) {
-
-                    RoundedRectangle(
-                        cornerRadius: 5
-                    )
-                    .fill(.secondary.opacity(0.15))
-
-                    RoundedRectangle(
-                        cornerRadius: 5
-                    )
-                    .fill(.primary.opacity(0.65))
-                    .frame(
-                        width:
-                            geometry.size.width *
-                            fraction
-                    )
-                }
-            }
-            .frame(height: 8)
-        }
-    }
-}
-
-
-// MARK: - SceneKit Helpers
+// MARK: - SCNVector3 Math
 
 extension SCNVector3 {
 
@@ -1888,7 +3111,6 @@ extension SCNVector3 {
         lhs: SCNVector3,
         rhs: SCNVector3
     ) -> SCNVector3 {
-
         SCNVector3(
             lhs.x + rhs.x,
             lhs.y + rhs.y,
@@ -1900,7 +3122,6 @@ extension SCNVector3 {
         lhs: SCNVector3,
         rhs: SCNVector3
     ) -> SCNVector3 {
-
         SCNVector3(
             lhs.x - rhs.x,
             lhs.y - rhs.y,
@@ -1912,7 +3133,6 @@ extension SCNVector3 {
         lhs: SCNVector3,
         rhs: Float
     ) -> SCNVector3 {
-
         SCNVector3(
             lhs.x * rhs,
             lhs.y * rhs,
@@ -1920,131 +3140,63 @@ extension SCNVector3 {
         )
     }
 
-    var length: Float {
-
-        sqrt(
-            x * x +
-            y * y +
-            z * z
-        )
-    }
-
     static func distance(
-        _ a: SCNVector3,
-        _ b: SCNVector3
+        _ start: SCNVector3,
+        _ end: SCNVector3
     ) -> Float {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let dz = end.z - start.z
 
-        (b - a).length
-    }
-
-    func normalized() -> SCNVector3 {
-
-        let l = length
-
-        guard l > 0 else {
-            return SCNVector3Zero
-        }
-
-        return self * (1.0 / l)
-    }
-
-    func look(
-        at target: SCNVector3,
-        up: SCNVector3,
-        localFront: SCNVector3
-    ) {
-
-        let direction =
-            (target - self).normalized()
-
-        let defaultDirection =
-            localFront.normalized()
-
-        let axis =
-            SCNVector3(
-                defaultDirection.y * direction.z -
-                defaultDirection.z * direction.y,
-
-                defaultDirection.z * direction.x -
-                defaultDirection.x * direction.z,
-
-                defaultDirection.x * direction.y -
-                defaultDirection.y * direction.x
-            )
-
-        let dot =
-            defaultDirection.x * direction.x +
-            defaultDirection.y * direction.y +
-            defaultDirection.z * direction.z
-
-        let clampedDot =
-            max(
-                min(dot, 1),
-                -1
-            )
-
-        let angle =
-            acos(
-                clampedDot
-            )
-
-        let axisLength =
-            axis.length
-
-        if axisLength > 0.0001 {
-
-            selfNodeRotation(
-                axis: axis.normalized(),
-                angle: angle
-            )
-        }
-    }
-
-    private func selfNodeRotation(
-        axis: SCNVector3,
-        angle: Float
-    ) {
-        // This helper is intentionally left empty because
-        // SCNNode.look(at:) is implemented below through
-        // the SCNNode extension.
+        return sqrt(
+            dx * dx +
+            dy * dy +
+            dz * dz
+        )
     }
 }
 
-
-// MARK: - SCNNode Look Helper
+// MARK: - SCNNode Orientation
 
 extension SCNNode {
 
     func look(
         at target: SCNVector3,
-        up: SCNVector3 = SCNVector3(0, 1, 0),
-        localFront: SCNVector3 = SCNVector3(0, 0, -1)
+        up: SCNVector3 = SCNVector3(
+            0,
+            1,
+            0
+        ),
+        localFront: SCNVector3 = SCNVector3(
+            0,
+            0,
+            -1
+        )
     ) {
+        let position = worldPosition
 
-        let worldPosition = self.worldPosition
-
-        // Direction from the node to the target.
-        let dx = target.x - worldPosition.x
-        let dy = target.y - worldPosition.y
-        let dz = target.z - worldPosition.z
+        let direction = SCNVector3(
+            target.x - position.x,
+            target.y - position.y,
+            target.z - position.z
+        )
 
         let directionLength = sqrt(
-            dx * dx +
-            dy * dy +
-            dz * dz
+            direction.x * direction.x +
+            direction.y * direction.y +
+            direction.z * direction.z
         )
 
         guard directionLength > 0.000001 else {
             return
         }
 
-        let direction = SCNVector3(
-            dx / directionLength,
-            dy / directionLength,
-            dz / directionLength
+        let normalizedDirection = SCNVector3(
+            direction.x / directionLength,
+            direction.y / directionLength,
+            direction.z / directionLength
         )
 
-        // Normalize the local front vector.
         let frontLength = sqrt(
             localFront.x * localFront.x +
             localFront.y * localFront.y +
@@ -2055,22 +3207,21 @@ extension SCNNode {
             return
         }
 
-        let front = SCNVector3(
+        let normalizedFront = SCNVector3(
             localFront.x / frontLength,
             localFront.y / frontLength,
             localFront.z / frontLength
         )
 
-        // Cross product: rotation axis.
         let axis = SCNVector3(
-            front.y * direction.z -
-            front.z * direction.y,
+            normalizedFront.y * normalizedDirection.z
+                - normalizedFront.z * normalizedDirection.y,
 
-            front.z * direction.x -
-            front.x * direction.z,
+            normalizedFront.z * normalizedDirection.x
+                - normalizedFront.x * normalizedDirection.z,
 
-            front.x * direction.y -
-            front.y * direction.x
+            normalizedFront.x * normalizedDirection.y
+                - normalizedFront.y * normalizedDirection.x
         )
 
         let axisLength = sqrt(
@@ -2079,56 +3230,32 @@ extension SCNNode {
             axis.z * axis.z
         )
 
-        // Dot product determines rotation angle.
-        let rawDot =
-            front.x * direction.x +
-            front.y * direction.y +
-            front.z * direction.z
-
-        let clampedDot = max(
+        let dot = max(
             -1.0,
-            min(1.0, rawDot)
+            min(
+                1.0,
+                normalizedFront.x * normalizedDirection.x +
+                normalizedFront.y * normalizedDirection.y +
+                normalizedFront.z * normalizedDirection.z
+            )
         )
 
-        let angle = acos(clampedDot)
+        let angle = acos(dot)
 
         if axisLength > 0.000001 {
-
-            let normalizedAxis = SCNVector3(
+            rotation = SCNVector4(
                 axis.x / axisLength,
                 axis.y / axisLength,
-                axis.z / axisLength
-            )
-
-            self.rotation = SCNVector4(
-                normalizedAxis.x,
-                normalizedAxis.y,
-                normalizedAxis.z,
+                axis.z / axisLength,
                 angle
             )
-
-        } else if clampedDot < 0 {
-
-            // The front vector and target direction point
-            // in exactly opposite directions.
-            //
-            // Use the supplied up vector as the rotation axis.
-
-            let upLength = sqrt(
-                up.x * up.x +
-                up.y * up.y +
-                up.z * up.z
+        } else if dot < 0 {
+            rotation = SCNVector4(
+                up.x,
+                up.y,
+                up.z,
+                Float.pi
             )
-
-            if upLength > 0.000001 {
-
-                self.rotation = SCNVector4(
-                    up.x / upLength,
-                    up.y / upLength,
-                    up.z / upLength,
-                    Float.pi
-                )
-            }
         }
     }
 }
