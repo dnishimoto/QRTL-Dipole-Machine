@@ -1,5 +1,42 @@
 import Foundation
 
+enum FieldDriveMode: String, CaseIterable, Identifiable {
+
+    case dcHold
+    case pulsed
+    case resonantAC
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .dcHold:
+            return "DC Hold"
+
+        case .pulsed:
+            return "Pulsed"
+
+        case .resonantAC:
+            return "Resonant AC"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .dcHold:
+            return "Static field with nonzero flux and zero Faraday-induced voltage."
+
+        case .pulsed:
+            return "Intermittent field with average copper heating reduced by duty cycle."
+
+        case .resonantAC:
+            return "Alternating field with conventional induction and resonator loss."
+        }
+    }
+}
+
 enum PhysicsConstants {
 
     // MARK: - Fundamental Constants
