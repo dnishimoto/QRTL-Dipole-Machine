@@ -1,4 +1,5 @@
 
+
 import SwiftUI
 import SceneKit
 
@@ -7,35 +8,22 @@ struct ContentView: View {
     @StateObject private var model = QRTLDipoleModel()
 
     var body: some View {
+
         NavigationStack {
+
             ScrollView {
+
                 VStack(spacing: 18) {
 
                     titleSection
-
                     sceneSection
-
                     outputSection
-
                     multiCoilSection
-
                     fieldFluxSection
-
-                    voltageSection
-
                     resonanceSection
-
-                    circuitSection
-
                     collectorSection
-
-                    lossesSection
-
-
                     controlsSection
-
                     equationSection
-
                     limitationSection
                 }
                 .padding()
@@ -47,12 +35,14 @@ struct ContentView: View {
     // MARK: - Title
 
     private var titleSection: some View {
+
         VStack(spacing: 8) {
+
             Text("QRTL Dipole Energy System")
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
 
-            Text("Multi-coil magnetic-field and induction model")
+            Text("Multi-coil magnetic-field and energy-collection model")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -64,6 +54,7 @@ struct ContentView: View {
     // MARK: - Scene
 
     private var sceneSection: some View {
+
         VStack(spacing: 12) {
 
             QRTLSceneView(
@@ -93,25 +84,20 @@ struct ContentView: View {
                 radialSpokeCount: Int(model.radialSpokeCount),
                 fluxManagementGain: model.fluxManagementGain
             )
-            .frame(height: 520)
+            .frame(height: 500)
             .clipShape(
                 RoundedRectangle(cornerRadius: 20)
             )
 
             VStack(spacing: 4) {
-                Text("3D MULTI-COIL MODEL")
+
+                Text("MULTI-COIL FIELD")
                 Text("↓")
-                Text("LOW-LOSS EXCITATION")
+                Text("COUPLING REGION")
                 Text("↓")
-                Text("PRIMARY + SHAPING COILS")
+                Text("ENERGY COLLECTION")
                 Text("↓")
-                Text("COMBINED DIPOLE FIELD")
-                Text("↓")
-                Text("COUPLING FLUX Φ")
-                Text("↓")
-                Text("FARADAY EMF")
-                Text("↓")
-                Text("COLLECTOR / LOAD")
+                Text("ELECTRICAL OUTPUT")
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
@@ -120,139 +106,51 @@ struct ContentView: View {
         .panelStyle()
     }
 
-    // MARK: - Output
-
+    // MARK: - Main Output
 
     private var outputSection: some View {
 
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
 
-            sectionHeader("CONVENTIONAL OUTPUT")
+            sectionHeader("SYSTEM OUTPUT")
 
-            OutputValue(
-                title: "Load",
-                value: PowerFormatter.string(
-                    megawatts: model.conventionalLoadElectricalPowerMW
-                )
-            )
+            VStack(spacing: 4) {
 
-            OutputValue(
-                title: "Gross",
-                value: PowerFormatter.string(
-                    megawatts: model.conventionalGrossOutputMW
-                )
-            )
-
-            OutputValue(
-                title: "Power Gathered",
-                value: PowerFormatter.string(
-                    megawatts: model.conventionalCapturedPowerMW
-                )
-            )
-
-            OutputValue(
-                title: "Net",
-                value: PowerFormatter.string(
-                    megawatts: model.conventionalNetOutputMW
-                )
-            )
-
-            // MARK: - Energy Cost Breakdown
-
-            VStack(alignment: .leading, spacing: 8) {
-
-                Text("ENERGY COST BREAKDOWN")
+                Text("QRTL MODELED NET OUTPUT")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
 
-                MetricRow(
-                    title: "Copper Loss",
-                    value: PowerFormatter.string(
-                        megawatts: model.totalCopperLossMW
+                Text(
+                    PowerFormatter.string(
+                        megawatts: model.qrtlNetOutputMW
                     )
                 )
-
-                MetricRow(
-                    title: "Switching & Core Loss",
-                    value: PowerFormatter.string(
-                        megawatts: model.switchingAndCoreLossMW
+                .font(
+                    .system(
+                        size: 38,
+                        weight: .bold,
+                        design: .rounded
                     )
                 )
-
-                MetricRow(
-                    title: "Resonator Loss",
-                    value: PowerFormatter.string(
-                        megawatts: model.resonatorMaintenanceLossMW
-                    )
-                )
-
-                MetricRow(
-                    title: "Power Electronics Loss",
-                    value: PowerFormatter.string(
-                        megawatts:
-                            max(
-                                0.0,
-                                model.fieldSystemInputMW
-                                -
-                                (
-                                    model.totalCopperLossMW
-                                    +
-                                    model.switchingAndCoreLossMW
-                                    +
-                                    model.resonatorMaintenanceLossMW
-                                )
-                                /
-                                max(
-                                    model.powerElectronicsEfficiency,
-                                    0.000001
-                                )
-                                *
-                                (
-                                    1.0
-                                    -
-                                    model.powerElectronicsEfficiency
-                                )
-                            )
-                    )
-                )
-
-                Divider()
-
-                MetricRow(
-                    title: "Cooling",
-                    value: PowerFormatter.string(
-                        megawatts: model.coolingPowerMW
-                    )
-                )
-
-                MetricRow(
-                    title: "Auxiliary",
-                    value: PowerFormatter.string(
-                        megawatts: model.auxiliaryPowerMW
-                    )
-                )
-
-                Divider()
-
-                MetricRow(
-                    title: "Field-System Input",
-                    value: PowerFormatter.string(
-                        megawatts: model.fieldSystemInputMW
-                    )
-                )
-
-                MetricRow(
-                    title: "Total Operating Costs",
-                    value: PowerFormatter.string(
-                        megawatts:
-                            model.fieldSystemInputMW
-                            + model.coolingPowerMW
-                            + model.auxiliaryPowerMW
-                    )
+                .foregroundStyle(
+                    model.targetReached
+                        ? .green
+                        : .primary
                 )
             }
-            .padding(.top, 4)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            MetricRow(
+                title: "Design Target",
+                value: PowerFormatter.string(
+                    megawatts:
+                        model.targetNetOutputMW
+                )
+            )
 
             ProgressView(
                 value: min(
@@ -264,7 +162,7 @@ struct ContentView: View {
             Text(model.targetStatus)
                 .font(.caption)
                 .foregroundStyle(
-                    targetReached
+                    model.targetReached
                         ? .green
                         : .secondary
                 )
@@ -272,42 +170,66 @@ struct ContentView: View {
             Divider()
 
             MetricRow(
-                title: "Circuit Current",
-                value: String(
-                    format: "%.3f A",
-                    model.machineCurrentRMSA
-                )
-            )
-
-            MetricRow(
-                title: "Power Gathered",
+                title: "QRTL Gross Collected",
                 value: PowerFormatter.string(
                     megawatts:
-                        model.conventionalCapturedPowerMW
+                        model.qrtlFieldCollectionPowerMW
                 )
             )
 
             MetricRow(
-                title: "Collector Current",
+                title: "Captured Field Current",
                 value: String(
-                    format: "%.3f A",
-                    model.collectorCurrentA
+                    format: "%.3e A",
+                    model.capturedFieldCurrentA
                 )
             )
+
+            MetricRow(
+                title: "Collection Voltage",
+                value: String(
+                    format: "%.3e V",
+                    model.fieldCurrentCollectionVoltageV
+                )
+            )
+
+            MetricRow(
+                title: "Operating Costs",
+                value: PowerFormatter.string(
+                    megawatts:
+                        model.qrtlOperatingCostsWatts
+                        / 1_000_000.0
+                )
+            )
+
+            Divider()
+
+            Text("CONVENTIONAL FARADAY REFERENCE")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+
+            MetricRow(
+                title: "Faraday Net Output",
+                value: PowerFormatter.string(
+                    megawatts:
+                        model.conventionalNetOutputMW
+                )
+            )
+
+            Text(
+                "The QRTL pathway is shown as a separate modeled collection pathway. The conventional reference follows the Faraday induction calculation."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .panelStyle()
     }
 
-
-    private var targetReached: Bool {
-        model.isRunning
-            && model.conventionalNetOutputMW
-                >= model.targetNetOutputMW
-    }
-
-    // MARK: - Multi Coil
+    // MARK: - Multi-Coil
 
     private var multiCoilSection: some View {
+
         VStack(alignment: .leading, spacing: 12) {
 
             sectionHeader("MULTI-COIL SYSTEM")
@@ -354,14 +276,6 @@ struct ContentView: View {
             Divider()
 
             MetricRow(
-                title: "Coil Power Scale",
-                value: String(
-                    format: "%.2f%%",
-                    model.coilPowerScale * 100.0
-                )
-            )
-
-            MetricRow(
                 title: "Total Ampere-Turns",
                 value: String(
                     format: "%.3e A-turns",
@@ -370,16 +284,9 @@ struct ContentView: View {
             )
 
             MetricRow(
-                title: "Total Copper Loss",
-                value: PowerFormatter.string(
-                    megawatts: model.totalCopperLossMW
-                )
-            )
-
-            MetricRow(
-                title: "Flux Management Gain",
+                title: "Flux Management",
                 value: String(
-                    format: "%.3f×",
+                    format: "%.2f×",
                     model.fluxManagementGain
                 )
             )
@@ -393,8 +300,9 @@ struct ContentView: View {
             )
 
             if model.isFieldPowerLimited {
+
                 Text(
-                    "Coil currents are reduced automatically to remain within the configured field-power budget."
+                    "Coil currents are automatically reduced to remain within the field-power budget."
                 )
                 .font(.caption)
                 .foregroundStyle(.orange)
@@ -402,17 +310,19 @@ struct ContentView: View {
         }
         .panelStyle()
     }
-    // MARK: - Field / Flux
+
+    // MARK: - Field & Flux
 
     private var fieldFluxSection: some View {
+
         VStack(alignment: .leading, spacing: 12) {
 
-            sectionHeader("FIELD & FLUX")
+            sectionHeader("FIELD & COUPLING")
 
             MetricRow(
                 title: "Coupling Altitude",
                 value: String(
-                    format: "%.3f km",
+                    format: "%.2f km",
                     model.couplingAltitudeKm
                 )
             )
@@ -420,90 +330,24 @@ struct ContentView: View {
             MetricRow(
                 title: "Coupling Radius",
                 value: String(
-                    format: "%.3f km",
+                    format: "%.2f km",
                     model.couplingRadiusKm
                 )
             )
 
             MetricRow(
-                title: "Coupling Disk Area",
+                title: "Field Strength",
                 value: String(
-                    format: "%.3e m²",
-                    model.couplingSurfaceAreaM2
-                )
-            )
-
-            MetricRow(
-                title: "Field at Coupling Center",
-                value: String(
-                    format: "%.6e T",
+                    format: "%.4e T",
                     model.fieldAtCouplingCenterTesla
                 )
             )
 
             MetricRow(
-                title: "Peak Integrated Flux",
+                title: "Peak Magnetic Flux",
                 value: String(
-                    format: "%.6e Wb",
+                    format: "%.4e Wb",
                     model.peakMagneticFluxWebers
-                )
-            )
-
-            MetricRow(
-                title: "Peak dΦ/dt",
-                value: String(
-                    format: "%.6e Wb/s",
-                    model.peakFluxChangeRateWebersPerSecond
-                )
-            )
-        }
-        .panelStyle()
-    }
-
-    // MARK: - Voltage
-
-    private var voltageSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-
-            sectionHeader("INDUCED VOLTAGE")
-
-            MetricRow(
-                title: "Frequency",
-                value: String(
-                    format: "%.3f kHz",
-                    model.fieldFrequencyKHz
-                )
-            )
-
-            MetricRow(
-                title: "Receiver Turns",
-                value: String(
-                    format: "%.0f",
-                    model.receiverTurns
-                )
-            )
-
-            MetricRow(
-                title: "Peak dΦ/dt",
-                value: String(
-                    format: "%.6e Wb/s",
-                    model.peakFluxChangeRateWebersPerSecond
-                )
-            )
-
-            MetricRow(
-                title: "Peak Induced EMF",
-                value: String(
-                    format: "%.6e V",
-                    model.inducedVoltagePeakV
-                )
-            )
-
-            MetricRow(
-                title: "RMS Source Voltage",
-                value: String(
-                    format: "%.6e V",
-                    model.inducedVoltageRMS
                 )
             )
         }
@@ -513,6 +357,7 @@ struct ContentView: View {
     // MARK: - Resonance
 
     private var resonanceSection: some View {
+
         VStack(alignment: .leading, spacing: 12) {
 
             sectionHeader("RESONANCE")
@@ -523,33 +368,15 @@ struct ContentView: View {
             )
 
             MetricRow(
-                title: "Total Inductance",
+                title: "Field Frequency",
                 value: String(
-                    format: "%.6e H",
-                    model.totalEstimatedInductanceH
+                    format: "%.3f kHz",
+                    model.fieldFrequencyKHz
                 )
             )
 
             MetricRow(
-                title: "Required Capacitance",
-                value: model.requiredResonantCapacitanceF.isFinite
-                    ? String(
-                        format: "%.6e F",
-                        model.requiredResonantCapacitanceF
-                    )
-                    : "∞"
-            )
-
-            MetricRow(
-                title: "Stored Magnetic Energy",
-                value: String(
-                    format: "%.6e J",
-                    model.totalStoredMagneticEnergyJ
-                )
-            )
-
-            MetricRow(
-                title: "Quality Factor",
+                title: "Resonator Q",
                 value: String(
                     format: "%.1f",
                     model.resonatorQualityFactor
@@ -557,98 +384,10 @@ struct ContentView: View {
             )
 
             MetricRow(
-                title: "Maintenance Loss",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.resonatorMaintenanceLossMW
-                )
-            )
-
-            Text(
-                "The resonator model estimates the maintenance power associated with stored magnetic energy and the specified quality factor."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .panelStyle()
-    }
-
-    // MARK: - Circuit
-
-    private var circuitSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-
-            sectionHeader("COLLECTOR CIRCUIT")
-
-            MetricRow(
-                title: "RMS Source Voltage",
+                title: "Stored Magnetic Energy",
                 value: String(
-                    format: "%.6e V",
-                    model.inducedVoltageRMS
-                )
-            )
-
-            MetricRow(
-                title: "Receiver Resistance",
-                value: String(
-                    format: "%.6f Ω",
-                    model.receiverResistanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "Collector Resistance",
-                value: String(
-                    format: "%.6f Ω",
-                    model.collectorResistanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "Inductive Reactance",
-                value: String(
-                    format: "%.6f Ω",
-                    model.collectorInductiveReactanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "Capacitive Reactance",
-                value: String(
-                    format: "%.6f Ω",
-                    model.collectorCapacitiveReactanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "Total Resistance",
-                value: String(
-                    format: "%.6f Ω",
-                    model.totalCircuitResistanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "Total Reactance",
-                value: String(
-                    format: "%.6f Ω",
-                    model.totalCircuitReactanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "|Z|",
-                value: String(
-                    format: "%.6f Ω",
-                    model.totalCircuitImpedanceMagnitudeOhms
-                )
-            )
-
-            MetricRow(
-                title: "Circuit Current",
-                value: String(
-                    format: "%.6f A",
-                    model.machineCurrentRMSA
+                    format: "%.4e J",
+                    model.totalStoredMagneticEnergyJ
                 )
             )
         }
@@ -658,31 +397,32 @@ struct ContentView: View {
     // MARK: - Collector
 
     private var collectorSection: some View {
+
         VStack(alignment: .leading, spacing: 12) {
 
             sectionHeader("COLLECTOR")
 
             MetricRow(
-                title: "Collector Current",
+                title: "Collector Area",
                 value: String(
-                    format: "%.6f A",
-                    model.collectorCurrentA
-                )
-            )
-
-            MetricRow(
-                title: "Footprint",
-                value: String(
-                    format: "%.3f acres",
+                    format: "%.2f acres",
                     model.collectorAreaAcres
                 )
             )
 
             MetricRow(
-                title: "Equivalent Radius",
+                title: "Collector Current",
                 value: String(
-                    format: "%.3f m",
-                    model.collectorRadiusM
+                    format: "%.4f A",
+                    model.collectorCurrentA
+                )
+            )
+
+            MetricRow(
+                title: "Collector Resistance",
+                value: String(
+                    format: "%.4e Ω",
+                    model.collectorResistanceOhms
                 )
             )
 
@@ -693,104 +433,14 @@ struct ContentView: View {
                     model.radialSpokeCount
                 )
             )
-
-            MetricRow(
-                title: "DC Resistance",
-                value: String(
-                    format: "%.6e Ω",
-                    model.collectorDCResistanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "AC Resistance",
-                value: String(
-                    format: "%.6e Ω",
-                    model.collectorACResistanceOhms
-                )
-            )
-
-            MetricRow(
-                title: "Skin Depth",
-                value: model.skinDepthM.isFinite
-                    ? String(
-                        format: "%.6e m",
-                        model.skinDepthM
-                    )
-                    : "∞"
-            )
-
-          }
-        .panelStyle()
-    }
-
-    // MARK: - Losses
-
-    private var lossesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-
-            sectionHeader("POWER BALANCE & LOSSES")
-
-            MetricRow(
-                title: "Field-System Input",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.fieldSystemInputMW
-                )
-            )
-
-            MetricRow(
-                title: "Load Electrical Power",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.conventionalLoadElectricalPowerMW
-                )
-            )
-
-            Divider()
-
-            MetricRow(
-                title: "Gross Usable Output",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.conventionalGrossOutputMW
-                )
-            )
-
-            MetricRow(
-                title: "Cooling",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.coolingPowerMW
-                )
-            )
-
-            MetricRow(
-                title: "Auxiliary",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.auxiliaryPowerMW
-                )
-            )
-
-            MetricRow(
-                title: "Net Output",
-                value: PowerFormatter.string(
-                    megawatts:
-                        model.conventionalNetOutputMW
-                )
-            )
         }
         .panelStyle()
     }
 
-
-
- 
-
     // MARK: - Controls
 
     private var controlsSection: some View {
+
         VStack(alignment: .leading, spacing: 16) {
 
             sectionHeader("SYSTEM CONTROLS")
@@ -798,6 +448,11 @@ struct ContentView: View {
             Toggle(
                 "System Running",
                 isOn: $model.isRunning
+            )
+
+            Toggle(
+                "QRTL Field Collection",
+                isOn: $model.qrtlFieldCollectionEnabled
             )
 
             Divider()
@@ -968,7 +623,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text("Flux Management")
+            Text("Flux & Coupling")
                 .font(.headline)
 
             ParameterSlider(
@@ -986,41 +641,6 @@ struct ContentView: View {
                 step: 0.01,
                 unit: "%"
             )
-
-            Divider()
-
-            Text("Modulation & Drive")
-                .font(.headline)
-
-            ParameterSlider(
-                title: "Field Frequency",
-                value: $model.fieldFrequencyKHz,
-                range: 0...100,
-                step: 0.1,
-                unit: "kHz"
-            )
-
-            ParameterSlider(
-                title: "Resonator Q",
-                value: $model.resonatorQualityFactor,
-                range: 1...10_000,
-                step: 1,
-                unit: ""
-            )
-
-      
-            ParameterSlider(
-                title: "Power Electronics Efficiency",
-                value: $model.powerElectronicsEfficiency,
-                range: 0.1...1,
-                step: 0.01,
-                unit: "%"
-            )
-
-            Divider()
-
-            Text("Coupling Surface")
-                .font(.headline)
 
             ParameterSlider(
                 title: "Altitude",
@@ -1040,7 +660,36 @@ struct ContentView: View {
 
             Divider()
 
-            Text("Receiver")
+            Text("Drive & Resonance")
+                .font(.headline)
+
+            ParameterSlider(
+                title: "Field Frequency",
+                value: $model.fieldFrequencyKHz,
+                range: 0...100,
+                step: 0.1,
+                unit: "kHz"
+            )
+
+            ParameterSlider(
+                title: "Resonator Q",
+                value: $model.resonatorQualityFactor,
+                range: 1...10_000,
+                step: 1,
+                unit: ""
+            )
+
+            ParameterSlider(
+                title: "Power Electronics Efficiency",
+                value: $model.powerElectronicsEfficiency,
+                range: 0.1...1,
+                step: 0.01,
+                unit: "%"
+            )
+
+            Divider()
+
+            Text("Receiver & Collector")
                 .font(.headline)
 
             ParameterSlider(
@@ -1058,11 +707,6 @@ struct ContentView: View {
                 step: 0.000001,
                 unit: "Ω"
             )
-
-            Divider()
-
-            Text("Collector")
-                .font(.headline)
 
             ParameterSlider(
                 title: "Collector Area",
@@ -1109,22 +753,6 @@ struct ContentView: View {
                 isOn: $model.includeACImpedance
             )
 
-            ParameterSlider(
-                title: "Collector Inductance",
-                value: $model.collectorInductanceH,
-                range: 0.000001...10,
-                step: 0.000001,
-                unit: "H"
-            )
-
-            ParameterSlider(
-                title: "Collector Capacitance",
-                value: $model.collectorCapacitanceF,
-                range: 0.000000001...0.01,
-                step: 0.000000001,
-                unit: "F"
-            )
-
             Divider()
 
             Text("Circuit")
@@ -1139,7 +767,7 @@ struct ContentView: View {
             )
 
             ParameterSlider(
-                title: "Ground Return Resistance",
+                title: "Ground Return",
                 value: $model.groundReturnResistanceOhms,
                 range: 0...10_000,
                 step: 0.001,
@@ -1183,6 +811,7 @@ struct ContentView: View {
             Button {
                 model.reset()
             } label: {
+
                 Label(
                     "Reset Simulation",
                     systemImage: "arrow.counterclockwise"
@@ -1197,68 +826,45 @@ struct ContentView: View {
     // MARK: - Equations
 
     private var equationSection: some View {
+
         VStack(alignment: .leading, spacing: 14) {
 
             sectionHeader("MODEL EQUATIONS")
 
             EquationStep(
                 number: 1,
-                title: "Coil Magnetic Moment",
-                equation: "mᵢ = NᵢIᵢAᵢ"
+                title: "Magnetic Moment",
+                equation: "m = NIA"
             )
 
             EquationStep(
                 number: 2,
-                title: "Combined Flux",
-                equation: "Φ(t) = Σ Φᵢ sin(ωt + φᵢ)"
+                title: "Magnetic Flux",
+                equation: "Φ = ∫ B · dA"
             )
 
             EquationStep(
                 number: 3,
-                title: "Dipole-to-Disk Flux",
-                equation: "Φᵢ = μ₀mᵢR² / [2(z² + R²)³ᐟ²]"
+                title: "Faraday EMF",
+                equation: "V = −N dΦ/dt"
             )
 
             EquationStep(
                 number: 4,
-                title: "Flux Derivative",
-                equation: "dΦ/dt = ω[A cos(ωt) − B sin(ωt)]"
-            )
-
-            EquationStep(
-                number: 5,
-                title: "Faraday EMF",
-                equation: "V = −Nᵣ dΦ/dt"
-            )
-
-            EquationStep(
-                number: 6,
-                title: "Circuit Impedance",
-                equation: "Z = R + j(ωL − 1/(ωC))"
-            )
-
-            EquationStep(
-                number: 7,
-                title: "Circuit Current",
-                equation: "Iᵣₘₛ = Vᵣₘₛ / |Z|"
-            )
-
-            EquationStep(
-                number: 8,
-                title: "Power",
+                title: "Circuit Power",
                 equation: "P = I²R"
             )
 
             EquationStep(
-                number: 9,
-                title: "Resonator Loss",
-                equation: "Pᵣₑₛ ≈ ωE/Q"
+                number: 5,
+                title: "QRTL Modeled Collection",
+                equation: "P_QRTL = I_captured × V_collection"
             )
 
             EquationStep(
-                number: 10,
-                title: "Design Objective",
-                equation: "maximize Φᵤₛₑfᵤₗ / Pᵢₙ"
+                number: 6,
+                title: "QRTL Net Output",
+                equation: "P_net = P_converted − P_operating"
             )
         }
         .panelStyle()
@@ -1267,17 +873,16 @@ struct ContentView: View {
     // MARK: - Limitations
 
     private var limitationSection: some View {
+
         VStack(alignment: .leading, spacing: 10) {
 
             sectionHeader("MODEL LIMITATIONS")
 
             Text(
                 """
-                The interactive model uses an analytic coaxial dipole-to-circular-disk approximation for rapid parameter exploration.
+                The conventional electromagnetic model uses an analytic dipole-to-circular-disk approximation for rapid parameter exploration.
 
-                The magnetic-flux calculation assumes axial alignment and an idealized circular coupling surface. Off-axis, tilted, noncircular, or fully distributed geometries would require numerical field integration.
-
-                The QRTL section is intentionally separated from the conventional electromagnetic calculation and represents a hypothesis/comparison model rather than an established contribution to the conventional circuit output.
+                The QRTL field-collection pathway is modeled separately from the conventional Faraday induction pathway and represents a hypothesis/comparison model rather than an experimentally established source of electrical power.
                 """
             )
             .font(.caption)
@@ -1306,6 +911,7 @@ struct ContentView: View {
 private extension View {
 
     func panelStyle() -> some View {
+
         self
             .padding()
             .background(.thinMaterial)
