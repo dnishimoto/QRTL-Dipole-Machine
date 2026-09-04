@@ -1,4 +1,3 @@
-
 import Foundation
 import SwiftUI
 import Combine
@@ -12,53 +11,29 @@ final class QRTLDipoleModel: ObservableObject {
     /// QRTL display target.
     ///
     /// 0.020 MW = 20 kW.
-    @Published var targetNetOutputMW: Double = 0.020
+    @Published var targetNetOutputMW: Double = 10.0
 
     // ============================================================
     // MARK: - Field Drive
     // ============================================================
 
-    /// DC Hold is the low-cost default.
     @Published var fieldDriveMode: FieldDriveMode = .dcHold
-
-    /// Set to zero for DC Hold.
-    ///
-    /// 0.001 kHz = 1 Hz.
     @Published var fieldFrequencyKHz: Double = 0.0
-
-    /// Only matters during .resonantAC.
     @Published var resonantDriveEnabled: Bool = false
-
     @Published var resonatorQualityFactor: Double = 200.0
-
-    /// Used only for .pulsed.
     @Published var fieldDutyCycle: Double = 0.10
-
-    /// Applied only in .resonantAC.
     @Published var acResistanceMultiplier: Double = 1.0
 
     // ============================================================
     // MARK: - Power Budget
     // ============================================================
 
-    /// Hard wall-plug ceiling for the field system.
     @Published var maximumFieldInputWatts: Double = 20_000.0
-
-    /// Target headroom under the hard ceiling.
-    ///
-    /// 0.90 × 20 kW = 18 kW target.
     @Published var fieldPowerDesignMargin: Double = 0.90
-
-    /// Fixed loss values are stored in watts to avoid MW/W mixing.
     @Published var switchingAndCoreLossWatts: Double = 500.0
-
-    /// Included in the field-system power budget.
     @Published var fieldAuxiliaryPowerWatts: Double = 500.0
-
-    /// Separate machine operating costs.
     @Published var coolingPowerWatts: Double = 500.0
     @Published var auxiliaryPowerWatts: Double = 1_000.0
-
     @Published var powerElectronicsEfficiency: Double = 0.94
 
     // ============================================================
@@ -118,12 +93,13 @@ final class QRTLDipoleModel: ObservableObject {
     @Published var collectorAreaAcres: Double = 10.0
     @Published var collectorConductivitySPerM: Double = 5.8e7
     @Published var collectorThicknessM: Double = 0.010
-    @Published var radialSpokeCount: Double = 32.0
-    @Published var radialSpokeWidthM: Double = 0.05
 
+    // Kept Double because it is controlled by SwiftUI sliders.
+    @Published var radialSpokeCount: Double = 32.0
+
+    @Published var radialSpokeWidthM: Double = 0.05
     @Published var collectorInductanceH: Double = 0.001
     @Published var collectorCapacitanceF: Double = 1.0e-6
-
     @Published var includeACImpedance: Bool = true
 
     @Published var sourceResistanceOhms: Double = 0.10
@@ -138,16 +114,20 @@ final class QRTLDipoleModel: ObservableObject {
     // MARK: - QRTL Hypothesis Collection
     // ============================================================
 
-    /// Explicit QRTL model input—not conventional measured current.
+    /// Explicit QRTL model input.
+    ///
+    /// This is a modeled/hypothesized input, not a measured
+    /// terrestrial or ionospheric current.
     @Published var fieldAlignedCurrentA: Double = 1.0e19
 
-    /// Clamped to 0...1.
+    /// Capture efficiency, clamped to 0...1 by calculations.
     @Published var fieldCurrentCaptureEfficiency: Double = 0.01
 
     /// Explicit modeled QRTL collection-interface voltage.
     ///
-    /// Retuned so the default QRTL model produces approximately
-    /// 20 kW of net modeled output at DC Hold.
+    /// Default model:
+    ///
+    /// 1.0e19 A × 0.01 × 2.5e-13 V = 25,000 W.
     @Published var fieldCollectionVoltageV: Double = 2.5e-13
 
     @Published var qrtlFieldCollectionEnabled: Bool = true
@@ -181,20 +161,17 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         func currentA(scale: Double) -> Double {
-            requestedCurrentA
-                * max(
-                    0.0,
-                    min(
-                        1.0,
-                        scale
-                    )
-                )
+            requestedCurrentA *
+            max(
+                0.0,
+                min(1.0, scale)
+            )
         }
 
         func magneticMomentAm2(scale: Double) -> Double {
-            turns
-                * currentA(scale: scale)
-                * areaM2
+            turns *
+            currentA(scale: scale) *
+            areaM2
         }
     }
 
@@ -250,7 +227,6 @@ final class QRTLDipoleModel: ObservableObject {
         .filter(\.enabled)
     }
 
-    /// Active coils with the power-budget scale applied.
     var activeCoils: [DipoleCoil] {
         requestedActiveCoils
     }
@@ -263,7 +239,6 @@ final class QRTLDipoleModel: ObservableObject {
         max(fieldFrequencyKHz, 0.0) * 1_000.0
     }
 
-    /// AC frequency active only in deliberate resonant operation.
     var frequencyHz: Double {
         guard
             fieldDriveMode == .resonantAC,
@@ -275,7 +250,6 @@ final class QRTLDipoleModel: ObservableObject {
         return requestedFrequencyHz
     }
 
-    /// Single source of truth for whether the field is changing.
     var isACDriveActive: Bool {
         frequencyHz > 0.0
     }
@@ -286,8 +260,8 @@ final class QRTLDipoleModel: ObservableObject {
 
     var effectiveFieldDutyCycle: Double {
         switch fieldDriveMode {
-        case .dcHold,
-             .resonantAC:
+
+        case .dcHold, .resonantAC:
             return 1.0
 
         case .pulsed:
@@ -332,15 +306,14 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var targetFieldInputWatts: Double {
-        max(0.0, maximumFieldInputWatts)
-            *
-            max(
-                0.0,
-                min(
-                    1.0,
-                    fieldPowerDesignMargin
-                )
+        max(0.0, maximumFieldInputWatts) *
+        max(
+            0.0,
+            min(
+                1.0,
+                fieldPowerDesignMargin
             )
+        )
     }
 
     var switchingAndCoreLossMW: Double {
@@ -356,8 +329,8 @@ final class QRTLDipoleModel: ObservableObject {
     }
 
     var fixedFieldLossWatts: Double {
-        max(0.0, switchingAndCoreLossWatts)
-            + max(0.0, fieldAuxiliaryPowerWatts)
+        max(0.0, switchingAndCoreLossWatts) +
+        max(0.0, fieldAuxiliaryPowerWatts)
     }
 
     func coilEffectiveResistanceOhms(
@@ -373,8 +346,8 @@ final class QRTLDipoleModel: ObservableObject {
             return resistance
         }
 
-        return resistance
-            * max(
+        return resistance *
+            max(
                 1.0,
                 acResistanceMultiplier
             )
@@ -392,14 +365,14 @@ final class QRTLDipoleModel: ObservableObject {
             coil in
 
             let rmsCurrent =
-                coil.requestedCurrentA
-                * currentRMSFactor
+                coil.requestedCurrentA *
+                currentRMSFactor
 
             let loss =
-                rmsCurrent
-                * rmsCurrent
-                * coilEffectiveResistanceOhms(coil)
-                * effectiveFieldDutyCycle
+                rmsCurrent *
+                rmsCurrent *
+                coilEffectiveResistanceOhms(coil) *
+                effectiveFieldDutyCycle
 
             return partial + loss
         }
@@ -409,24 +382,31 @@ final class QRTLDipoleModel: ObservableObject {
         _ coil: DipoleCoil
     ) -> Double {
 
-        let radius = max(coil.radiusM, 0.01)
-        let bundleRadius = max(radius * 0.02, 0.001)
+        let radius = max(
+            coil.radiusM,
+            0.01
+        )
+
+        let bundleRadius = max(
+            radius * 0.02,
+            0.001
+        )
 
         let geometricTerm = max(
             log(
-                8.0
-                * radius
-                / bundleRadius
+                8.0 *
+                radius /
+                bundleRadius
             ) - 2.0,
             0.1
         )
 
         return
-            vacuumPermeability
-            * coil.turns
-            * coil.turns
-            * radius
-            * geometricTerm
+            vacuumPermeability *
+            coil.turns *
+            coil.turns *
+            radius *
+            geometricTerm
     }
 
     var requestedStoredMagneticEnergyJ: Double {
@@ -435,10 +415,10 @@ final class QRTLDipoleModel: ObservableObject {
             coil in
 
             let energy =
-                0.5
-                * estimatedCoilInductanceH(coil)
-                * coil.requestedCurrentA
-                * coil.requestedCurrentA
+                0.5 *
+                estimatedCoilInductanceH(coil) *
+                coil.requestedCurrentA *
+                coil.requestedCurrentA
 
             return partial + energy
         }
@@ -455,14 +435,14 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            angularFrequency
-            * requestedStoredMagneticEnergyJ
-            / resonatorQualityFactor
+            angularFrequency *
+            requestedStoredMagneticEnergyJ /
+            resonatorQualityFactor
     }
 
     var requestedVariableFieldLossWatts: Double {
-        requestedCopperLossWatts
-            + requestedResonatorLossWatts
+        requestedCopperLossWatts +
+        requestedResonatorLossWatts
     }
 
     var coilPowerScale: Double {
@@ -474,12 +454,12 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         let allowedInternalLoss =
-            targetFieldInputWatts
-            * powerElectronicsEfficiency
+            targetFieldInputWatts *
+            powerElectronicsEfficiency
 
         let allowedVariableLoss =
-            allowedInternalLoss
-            - fixedFieldLossWatts
+            allowedInternalLoss -
+            fixedFieldLossWatts
 
         guard allowedVariableLoss > 0.0 else {
             return 0.0
@@ -492,8 +472,8 @@ final class QRTLDipoleModel: ObservableObject {
         return min(
             1.0,
             sqrt(
-                allowedVariableLoss
-                / requestedVariableFieldLossWatts
+                allowedVariableLoss /
+                requestedVariableFieldLossWatts
             )
         )
     }
@@ -517,8 +497,8 @@ final class QRTLDipoleModel: ObservableObject {
     func coilRMSCurrentA(
         _ coil: DipoleCoil
     ) -> Double {
-        coilPeakCurrentA(coil)
-            * currentRMSFactor
+        coilPeakCurrentA(coil) *
+        currentRMSFactor
     }
 
     func coilCopperLossWatts(
@@ -535,10 +515,23 @@ final class QRTLDipoleModel: ObservableObject {
         let current = coilRMSCurrentA(coil)
 
         return
-            current
-            * current
-            * coilEffectiveResistanceOhms(coil)
-            * effectiveFieldDutyCycle
+            current *
+            current *
+            coilEffectiveResistanceOhms(coil) *
+            effectiveFieldDutyCycle
+    }
+
+    // Convenience properties for ContentView.
+    var primaryCopperLossWatts: Double {
+        coilCopperLossWatts(primaryCoil)
+    }
+
+    var upperCopperLossWatts: Double {
+        coilCopperLossWatts(upperCoil)
+    }
+
+    var lowerCopperLossWatts: Double {
+        coilCopperLossWatts(lowerCoil)
     }
 
     func coilCopperLossMW(
@@ -564,8 +557,8 @@ final class QRTLDipoleModel: ObservableObject {
             partial,
             coil in
 
-            partial
-                + coilCopperLossWatts(coil)
+            partial +
+            coilCopperLossWatts(coil)
         }
     }
 
@@ -578,8 +571,8 @@ final class QRTLDipoleModel: ObservableObject {
             partial,
             coil in
 
-            partial
-                + estimatedCoilInductanceH(coil)
+            partial +
+            estimatedCoilInductanceH(coil)
         }
     }
 
@@ -588,13 +581,14 @@ final class QRTLDipoleModel: ObservableObject {
             partial,
             coil in
 
-            let current = coilPeakCurrentA(coil)
+            let current =
+                coilPeakCurrentA(coil)
 
             let energy =
-                0.5
-                * estimatedCoilInductanceH(coil)
-                * current
-                * current
+                0.5 *
+                estimatedCoilInductanceH(coil) *
+                current *
+                current
 
             return partial + energy
         }
@@ -609,12 +603,11 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            1.0
-            /
+            1.0 /
             (
-                angularFrequency
-                * angularFrequency
-                * totalEstimatedInductanceH
+                angularFrequency *
+                angularFrequency *
+                totalEstimatedInductanceH
             )
     }
 
@@ -629,13 +622,14 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            angularFrequency
-            * totalStoredMagneticEnergyJ
-            / resonatorQualityFactor
+            angularFrequency *
+            totalStoredMagneticEnergyJ /
+            resonatorQualityFactor
     }
 
     var resonatorMaintenanceLossMW: Double {
-        resonatorMaintenanceLossWatts / 1_000_000.0
+        resonatorMaintenanceLossWatts /
+        1_000_000.0
     }
 
     // ============================================================
@@ -648,9 +642,9 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            totalCopperLossWatts
-            + resonatorMaintenanceLossWatts
-            + fixedFieldLossWatts
+            totalCopperLossWatts +
+            resonatorMaintenanceLossWatts +
+            fixedFieldLossWatts
     }
 
     var fieldSystemInputWatts: Double {
@@ -662,8 +656,8 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            totalFieldLossesWatts
-            / powerElectronicsEfficiency
+            totalFieldLossesWatts /
+            powerElectronicsEfficiency
     }
 
     var fieldSystemInputKW: Double {
@@ -687,8 +681,8 @@ final class QRTLDipoleModel: ObservableObject {
     ) -> Double {
 
         let distance = abs(
-            couplingAltitudeM
-            - coil.centerY
+            couplingAltitudeM -
+            coil.centerY
         )
 
         let radius = max(
@@ -701,27 +695,22 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         let geometricTerm =
-            (1.0 / distance)
-            -
+            (1.0 / distance) -
             (
-                1.0
-                /
+                1.0 /
                 sqrt(
-                    distance
-                    * distance
-                    +
-                    radius
-                    * radius
+                    distance * distance +
+                    radius * radius
                 )
             )
 
         return
-            0.5
-            * vacuumPermeability
-            * coil.magneticMomentAm2(
+            0.5 *
+            vacuumPermeability *
+            coil.magneticMomentAm2(
                 scale: coilPowerScale
-            )
-            * geometricTerm
+            ) *
+            geometricTerm
     }
 
     var fluxInPhaseWebers: Double {
@@ -729,15 +718,15 @@ final class QRTLDipoleModel: ObservableObject {
             partial,
             coil in
 
-            partial
-                + coilFluxPeakWebers(coil)
-                * cos(coil.phaseRadians)
+            partial +
+            coilFluxPeakWebers(coil) *
+            cos(coil.phaseRadians)
         }
 
         return
-            flux
-            * fluxManagementGain
-            * couplingAlignmentFactor
+            flux *
+            fluxManagementGain *
+            couplingAlignmentFactor
     }
 
     var fluxQuadratureWebers: Double {
@@ -745,15 +734,15 @@ final class QRTLDipoleModel: ObservableObject {
             partial,
             coil in
 
-            partial
-                + coilFluxPeakWebers(coil)
-                * sin(coil.phaseRadians)
+            partial +
+            coilFluxPeakWebers(coil) *
+            sin(coil.phaseRadians)
         }
 
         return
-            flux
-            * fluxManagementGain
-            * couplingAlignmentFactor
+            flux *
+            fluxManagementGain *
+            couplingAlignmentFactor
     }
 
     var peakMagneticFluxWebers: Double {
@@ -780,15 +769,12 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         let phase =
-            angularFrequency
-            * timeSeconds
+            angularFrequency *
+            timeSeconds
 
         return
-            fluxInPhaseWebers
-            * sin(phase)
-            +
-            fluxQuadratureWebers
-            * cos(phase)
+            fluxInPhaseWebers * sin(phase) +
+            fluxQuadratureWebers * cos(phase)
     }
 
     var peakFluxChangeRateWebersPerSecond: Double {
@@ -800,8 +786,8 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            angularFrequency
-            * peakMagneticFluxWebers
+            angularFrequency *
+            peakMagneticFluxWebers
     }
 
     func fluxChangeRateWebersPerSecond(
@@ -816,18 +802,14 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         let phase =
-            angularFrequency
-            * timeSeconds
+            angularFrequency *
+            timeSeconds
 
         return
-            angularFrequency
-            *
+            angularFrequency *
             (
-                fluxInPhaseWebers
-                * cos(phase)
-                -
-                fluxQuadratureWebers
-                * sin(phase)
+                fluxInPhaseWebers * cos(phase) -
+                fluxQuadratureWebers * sin(phase)
             )
     }
 
@@ -841,53 +823,53 @@ final class QRTLDipoleModel: ObservableObject {
 
         let distance = max(
             abs(
-                couplingAltitudeM
-                - coil.centerY
+                couplingAltitudeM -
+                coil.centerY
             ),
             0.001
         )
 
         return
-            vacuumPermeability
-            * coil.magneticMomentAm2(
+            vacuumPermeability *
+            coil.magneticMomentAm2(
                 scale: coilPowerScale
-            )
-            /
+            ) /
             (
-                2.0
-                * Double.pi
-                * distance
-                * distance
-                * distance
+                2.0 *
+                Double.pi *
+                distance *
+                distance *
+                distance
             )
     }
 
     var fieldAtCouplingCenterTesla: Double {
+
         let inPhase = activeCoils.reduce(0.0) {
             partial,
             coil in
 
-            partial
-                + coilAxialFieldTesla(coil)
-                * cos(coil.phaseRadians)
+            partial +
+            coilAxialFieldTesla(coil) *
+            cos(coil.phaseRadians)
         }
 
         let quadrature = activeCoils.reduce(0.0) {
             partial,
             coil in
 
-            partial
-                + coilAxialFieldTesla(coil)
-                * sin(coil.phaseRadians)
+            partial +
+            coilAxialFieldTesla(coil) *
+            sin(coil.phaseRadians)
         }
 
         return
             hypot(
                 inPhase,
                 quadrature
-            )
-            * fluxManagementGain
-            * couplingAlignmentFactor
+            ) *
+            fluxManagementGain *
+            couplingAlignmentFactor
     }
 
     // ============================================================
@@ -895,13 +877,14 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var inducedVoltagePeakV: Double {
+
         guard receiverTurns > 0.0 else {
             return 0.0
         }
 
         return
-            receiverTurns
-            * peakFluxChangeRateWebersPerSecond
+            receiverTurns *
+            peakFluxChangeRateWebersPerSecond
     }
 
     var inducedVoltageRMS: Double {
@@ -913,15 +896,16 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var collectorSpokeCrossSectionM2: Double {
-        max(collectorThicknessM, 0.0)
-            * max(radialSpokeWidthM, 0.0)
+        max(collectorThicknessM, 0.0) *
+        max(radialSpokeWidthM, 0.0)
     }
 
     var collectorDCResistanceOhms: Double {
+
         let denominator =
-            collectorConductivitySPerM
-            * collectorSpokeCrossSectionM2
-            * max(radialSpokeCount, 1.0)
+            collectorConductivitySPerM *
+            collectorSpokeCrossSectionM2 *
+            max(radialSpokeCount, 1.0)
 
         guard denominator > 0.0 else {
             return .infinity
@@ -931,6 +915,7 @@ final class QRTLDipoleModel: ObservableObject {
     }
 
     var skinDepthM: Double {
+
         guard
             isACDriveActive,
             collectorConductivitySPerM > 0.0
@@ -939,19 +924,22 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return sqrt(
-            2.0
-            /
+            2.0 /
             (
-                angularFrequency
-                * vacuumPermeability
-                * collectorConductivitySPerM
+                angularFrequency *
+                vacuumPermeability *
+                collectorConductivitySPerM
             )
         )
     }
 
     var effectiveCollectorThicknessM: Double {
+
         guard skinDepthM.isFinite else {
-            return max(collectorThicknessM, 0.0)
+            return max(
+                collectorThicknessM,
+                0.0
+            )
         }
 
         return min(
@@ -964,14 +952,15 @@ final class QRTLDipoleModel: ObservableObject {
     }
 
     var collectorACResistanceOhms: Double {
+
         let effectiveArea =
-            max(radialSpokeWidthM, 0.0)
-            * effectiveCollectorThicknessM
+            max(radialSpokeWidthM, 0.0) *
+            effectiveCollectorThicknessM
 
         let denominator =
-            collectorConductivitySPerM
-            * effectiveArea
-            * max(radialSpokeCount, 1.0)
+            collectorConductivitySPerM *
+            effectiveArea *
+            max(radialSpokeCount, 1.0)
 
         guard denominator > 0.0 else {
             return .infinity
@@ -991,6 +980,7 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var collectorInductiveReactanceOhms: Double {
+
         guard
             includeACImpedance,
             isACDriveActive
@@ -999,11 +989,12 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            angularFrequency
-            * max(collectorInductanceH, 0.0)
+            angularFrequency *
+            max(collectorInductanceH, 0.0)
     }
 
     var collectorCapacitiveReactanceOhms: Double {
+
         guard
             includeACImpedance,
             isACDriveActive,
@@ -1013,29 +1004,31 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            -1.0
-            /
+            -1.0 /
             (
-                angularFrequency
-                * collectorCapacitanceF
+                angularFrequency *
+                collectorCapacitanceF
             )
     }
 
     var totalCircuitResistanceOhms: Double {
-        max(receiverResistanceOhms, 0.0)
-            + max(sourceResistanceOhms, 0.0)
-            + max(collectorResistanceOhms, 0.0)
-            + max(groundReturnResistanceOhms, 0.0)
-            + max(radiationResistanceOhms, 0.0)
-            + max(loadResistanceOhms, 0.0)
+
+        max(receiverResistanceOhms, 0.0) +
+        max(sourceResistanceOhms, 0.0) +
+        max(collectorResistanceOhms, 0.0) +
+        max(groundReturnResistanceOhms, 0.0) +
+        max(radiationResistanceOhms, 0.0) +
+        max(loadResistanceOhms, 0.0)
     }
 
     var totalCircuitReactanceOhms: Double {
-        collectorInductiveReactanceOhms
-            + collectorCapacitiveReactanceOhms
+
+        collectorInductiveReactanceOhms +
+        collectorCapacitiveReactanceOhms
     }
 
     var totalCircuitImpedanceMagnitudeOhms: Double {
+
         hypot(
             totalCircuitResistanceOhms,
             totalCircuitReactanceOhms
@@ -1043,6 +1036,7 @@ final class QRTLDipoleModel: ObservableObject {
     }
 
     var machineCurrentRMSA: Double {
+
         guard
             isRunning,
             isACDriveActive,
@@ -1053,8 +1047,8 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         return
-            inducedVoltageRMS
-            / totalCircuitImpedanceMagnitudeOhms
+            inducedVoltageRMS /
+            totalCircuitImpedanceMagnitudeOhms
     }
 
     var collectorCurrentA: Double {
@@ -1066,25 +1060,29 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var conventionalLoadElectricalPowerMW: Double {
-        machineCurrentRMSA
-            * machineCurrentRMSA
-            * max(loadResistanceOhms, 0.0)
-            / 1_000_000.0
+
+        machineCurrentRMSA *
+        machineCurrentRMSA *
+        max(loadResistanceOhms, 0.0) /
+        1_000_000.0
     }
 
     var conventionalCapturedPowerWatts: Double {
-        inducedVoltageRMS
-            * machineCurrentRMSA
+
+        inducedVoltageRMS *
+        machineCurrentRMSA
     }
 
     var conventionalCapturedPowerMW: Double {
-        conventionalCapturedPowerWatts / 1_000_000.0
+        conventionalCapturedPowerWatts /
+        1_000_000.0
     }
 
     var conventionalGrossOutputMW: Double {
+
         let contactAdjusted =
-            conventionalLoadElectricalPowerMW
-            * max(
+            conventionalLoadElectricalPowerMW *
+            max(
                 0.0,
                 min(
                     1.0,
@@ -1093,8 +1091,8 @@ final class QRTLDipoleModel: ObservableObject {
             )
 
         return
-            contactAdjusted
-            * max(
+            contactAdjusted *
+            max(
                 0.0,
                 min(
                     1.0,
@@ -1108,6 +1106,7 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var fieldAlignedCurrent: Double {
+
         guard
             isRunning,
             qrtlFieldCollectionEnabled
@@ -1122,17 +1121,19 @@ final class QRTLDipoleModel: ObservableObject {
     }
 
     var capturedFieldCurrentA: Double {
-        fieldAlignedCurrent
-            * max(
-                0.0,
-                min(
-                    1.0,
-                    fieldCurrentCaptureEfficiency
-                )
+
+        fieldAlignedCurrent *
+        max(
+            0.0,
+            min(
+                1.0,
+                fieldCurrentCaptureEfficiency
             )
+        )
     }
 
     var fieldCurrentCollectionVoltageV: Double {
+
         guard
             isRunning,
             qrtlFieldCollectionEnabled
@@ -1150,41 +1151,46 @@ final class QRTLDipoleModel: ObservableObject {
     ///
     /// P = I_captured × V_collection
     var qrtlFieldCollectionPowerW: Double {
-        capturedFieldCurrentA
-            * fieldCurrentCollectionVoltageV
+
+        capturedFieldCurrentA *
+        fieldCurrentCollectionVoltageV
     }
 
     var qrtlFieldCollectionPowerMW: Double {
-        qrtlFieldCollectionPowerW / 1_000_000.0
+        qrtlFieldCollectionPowerW /
+        1_000_000.0
     }
 
     var qrtlPowerAfterContactMW: Double {
-        qrtlFieldCollectionPowerMW
-            * max(
-                0.0,
-                min(
-                    1.0,
-                    contactEfficiency
-                )
+
+        qrtlFieldCollectionPowerMW *
+        max(
+            0.0,
+            min(
+                1.0,
+                contactEfficiency
             )
+        )
     }
 
     var qrtlConvertedCollectedPowerMW: Double {
-        qrtlPowerAfterContactMW
-            * max(
-                0.0,
-                min(
-                    1.0,
-                    conversionEfficiency
-                )
+
+        qrtlPowerAfterContactMW *
+        max(
+            0.0,
+            min(
+                1.0,
+                conversionEfficiency
             )
+        )
     }
 
     var qrtlCollectionConversionLossMW: Double {
+
         max(
             0.0,
-            qrtlFieldCollectionPowerMW
-            - qrtlConvertedCollectedPowerMW
+            qrtlFieldCollectionPowerMW -
+            qrtlConvertedCollectedPowerMW
         )
     }
 
@@ -1200,18 +1206,21 @@ final class QRTLDipoleModel: ObservableObject {
         qrtlFieldCollectionPowerMW
     }
 
-    /// UI "Power Gathered" metric.
     var displayedPowerGatheredMW: Double {
+
         qrtlFieldCollectionEnabled
             ? qrtlPowerGatheredMW
             : conventionalPowerGatheredMW
     }
 
     var displayedPowerGatheredKW: Double {
-        displayedPowerGatheredMW * 1_000.0
+
+        displayedPowerGatheredMW *
+        1_000.0
     }
 
     var powerGatheredLabel: String {
+
         qrtlFieldCollectionEnabled
             ? "QRTL Modeled Power Gathered"
             : "Conventional Faraday Power Gathered"
@@ -1221,24 +1230,25 @@ final class QRTLDipoleModel: ObservableObject {
     // MARK: - Net Output
     // ============================================================
 
-    /// QRTL operating costs in watts.
     var qrtlOperatingCostsWatts: Double {
-        fieldSystemInputWatts
-            + max(coolingPowerWatts, 0.0)
-            + max(auxiliaryPowerWatts, 0.0)
+
+        fieldSystemInputWatts +
+        max(coolingPowerWatts, 0.0) +
+        max(auxiliaryPowerWatts, 0.0)
     }
 
-    /// QRTL operating costs in MW.
     var qrtlOperatingCostsMW: Double {
-        qrtlOperatingCostsWatts / 1_000_000.0
+
+        qrtlOperatingCostsWatts /
+        1_000_000.0
     }
 
     /// QRTL modeled net output.
     ///
-    /// This is independent of Faraday dΦ/dt, so DC Hold can
-    /// display QRTL modeled collection while conventional
-    /// Faraday output remains zero.
+    /// This is a model-specific calculation independent of
+    /// conventional Faraday dΦ/dt.
     var qrtlNetOutputMW: Double {
+
         guard
             isRunning,
             qrtlFieldCollectionEnabled
@@ -1247,12 +1257,12 @@ final class QRTLDipoleModel: ObservableObject {
         }
 
         let convertedPowerW =
-            qrtlConvertedCollectedPowerMW
-            * 1_000_000.0
+            qrtlConvertedCollectedPowerMW *
+            1_000_000.0
 
         let netPowerW =
-            convertedPowerW
-            - qrtlOperatingCostsWatts
+            convertedPowerW -
+            qrtlOperatingCostsWatts
 
         return max(
             0.0,
@@ -1260,26 +1270,25 @@ final class QRTLDipoleModel: ObservableObject {
         ) / 1_000_000.0
     }
 
-    /// Conventional net output.
     var conventionalNetOutputMW: Double {
-        conventionalGrossOutputMW
-            - fieldSystemInputMW
-            - coolingPowerMW
-            - auxiliaryPowerMW
+
+        conventionalGrossOutputMW -
+        fieldSystemInputMW -
+        coolingPowerMW -
+        auxiliaryPowerMW
     }
 
-    /// Single value for the UI and target test.
-    ///
-    /// QRTL mode takes priority when enabled.
     var qrtlComparisonNetOutputMW: Double {
+
         qrtlFieldCollectionEnabled
             ? qrtlNetOutputMW
             : conventionalNetOutputMW
     }
 
-    /// Convenience value in kW for UI display.
     var displayedNetOutputKW: Double {
-        qrtlComparisonNetOutputMW * 1_000.0
+
+        qrtlComparisonNetOutputMW *
+        1_000.0
     }
 
     // ============================================================
@@ -1287,71 +1296,79 @@ final class QRTLDipoleModel: ObservableObject {
     // ============================================================
 
     var qrtlCurrentCaptureRatio: Double {
+
         guard fieldAlignedCurrent > 0.0 else {
             return 0.0
         }
 
         return
-            capturedFieldCurrentA
-            / fieldAlignedCurrent
+            capturedFieldCurrentA /
+            fieldAlignedCurrent
     }
 
     var qrtlIVPowerCheckMW: Double {
-        capturedFieldCurrentA
-            * fieldCurrentCollectionVoltageV
-            / 1_000_000.0
+
+        capturedFieldCurrentA *
+        fieldCurrentCollectionVoltageV /
+        1_000_000.0
     }
 
     var qrtlPowerConsistencyErrorW: Double {
+
         abs(
-            qrtlFieldCollectionPowerW
-            -
+            qrtlFieldCollectionPowerW -
             (
-                capturedFieldCurrentA
-                * fieldCurrentCollectionVoltageV
+                capturedFieldCurrentA *
+                fieldCurrentCollectionVoltageV
             )
         )
     }
 
     var usefulFluxPerInputWbPerW: Double {
+
         guard fieldSystemInputWatts > 0.0 else {
             return 0.0
         }
 
         return
-            peakMagneticFluxWebers
-            / fieldSystemInputWatts
+            peakMagneticFluxWebers /
+            fieldSystemInputWatts
     }
 
     var totalAmpereTurns: Double {
+
         activeCoils.reduce(0.0) {
             partial,
             coil in
 
-            partial
-                + coil.turns
-                * coilPeakCurrentA(coil)
+            partial +
+            coil.turns *
+            coilPeakCurrentA(coil)
         }
     }
 
     var targetPercent: Double {
+
         guard targetNetOutputMW > 0.0 else {
             return 0.0
         }
 
         return max(
             0.0,
-            qrtlComparisonNetOutputMW
-            / targetNetOutputMW
-            * 100.0
+            qrtlComparisonNetOutputMW /
+            targetNetOutputMW *
+            100.0
         )
     }
 
     var targetReached: Bool {
-        qrtlComparisonNetOutputMW >= targetNetOutputMW
+
+        qrtlComparisonNetOutputMW >=
+        targetNetOutputMW
     }
 
     var targetStatus: String {
+
         guard isRunning else {
             return "Paused"
         }
@@ -1392,9 +1409,9 @@ final class QRTLDipoleModel: ObservableObject {
 
         switchingAndCoreLossWatts = 500.0
         fieldAuxiliaryPowerWatts = 500.0
+
         coolingPowerWatts = 500.0
         auxiliaryPowerWatts = 1_000.0
-
         powerElectronicsEfficiency = 0.94
 
         primaryTurns = 2_000.0
@@ -1435,7 +1452,6 @@ final class QRTLDipoleModel: ObservableObject {
 
         collectorInductanceH = 0.001
         collectorCapacitanceF = 1.0e-6
-
         includeACImpedance = true
 
         sourceResistanceOhms = 0.10
@@ -1448,9 +1464,6 @@ final class QRTLDipoleModel: ObservableObject {
 
         fieldAlignedCurrentA = 1.0e19
         fieldCurrentCaptureEfficiency = 0.01
-
-        // IMPORTANT:
-        // 1.0e19 A × 0.01 × 2.5e-13 V = 25,000 W
         fieldCollectionVoltageV = 2.5e-13
 
         qrtlFieldCollectionEnabled = true
